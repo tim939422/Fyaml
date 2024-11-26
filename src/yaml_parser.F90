@@ -4,7 +4,8 @@ module yaml_parser
 contains
   subroutine parse_yaml(filename, docs)
     character(len=*), intent(in) :: filename
-    type(yaml_document), allocatable, intent(out) :: docs(:)
+    type(yaml_document), allocatable, target, intent(out) :: docs(:)  ! Add TARGET attribute
+    type(yaml_document), allocatable, target :: tmp_docs(:)  ! Add declaration for tmp_docs
     character(len=256) :: line
     integer :: unit, ios, doc_count
     type(yaml_document), pointer :: current_doc
@@ -28,8 +29,12 @@ contains
       ! Check for document start marker
       if (trim(line) == '---') then
         doc_count = doc_count + 1
+        call move_alloc(docs, tmp_docs)  ! Use move_alloc to resize
         allocate(docs(doc_count))
-        current_doc => docs(doc_count)
+        if (doc_count > 1) then
+          docs(1:doc_count-1) = tmp_docs
+        end if
+        current_doc => docs(doc_count)  ! Now valid pointer assignment
         call initialize_document(current_doc)
         cycle
       end if
@@ -49,11 +54,22 @@ contains
     close(unit)
   end subroutine parse_yaml
 
+  ! Update initialize_document subroutine
   subroutine initialize_document(doc)
-    type(yaml_document), intent(out) :: doc
-    doc%root => null()
-    doc%anchors => null()
-  end subroutine initialize_document
+    implicit none
+    type(yaml_document), intent(inout) :: doc
+    integer :: alloc_stat
+    integer, parameter :: INITIAL_ANCHOR_SIZE = 4  ! Start small
+
+    if (.not. associated(doc%anchors)) then
+        allocate(doc%anchors(INITIAL_ANCHOR_SIZE), stat=alloc_stat)
+        if (alloc_stat /= 0) then
+            print *, "Error: Failed to allocate anchors array"
+            return
+        endif
+    endif
+    doc%anchor_count = 0
+  end subroutine
 
   subroutine parse_line(line, doc)
     character(len=*), intent(in) :: line
@@ -63,34 +79,38 @@ contains
     real :: r_value
     integer :: i_value
     logical :: l_value, is_real, is_int, is_logical
+    character(len=:), allocatable :: local_line  ! New local variable
+
+    ! Create local copy of line for modification
+    local_line = line
 
     ! Remove inline comments
-    pos = index(line, '#')
+    pos = index(local_line, '#')
     if (pos > 0) then
-      line = trim(line(1:pos-1))
+        local_line = trim(local_line(1:pos-1))
     end if
 
     ! Determine the indentation level
-    current_indent = count_leading_spaces(line)
+    current_indent = count_leading_spaces(local_line)
 
     ! Allocate a new node
     allocate(new_node)
     call initialize_node(new_node)
 
     ! Check if the line is part of a sequence
-    if (line(1:1) == '-') then
-      new_node%is_sequence = .true.
-      new_node%key = ''
-      new_node%value = trim(line(2:))
+    if (local_line(1:1) == '-') then
+        new_node%is_sequence = .true.
+        new_node%key = ''
+        new_node%value = trim(local_line(2:))
     else
-      pos = index(line, ':')
-      if (pos > 0) then
-        new_node%key = trim(line(1:pos-1))
-        new_node%value = trim(line(pos+1:))
-      else
-        new_node%key = trim(line)
-        new_node%value = ''
-      end if
+        pos = index(local_line, ':')
+        if (pos > 0) then
+            new_node%key = trim(local_line(1:pos-1))
+            new_node%value = trim(local_line(pos+1:))
+        else
+            new_node%key = trim(local_line)
+            new_node%value = ''
+        end if
     end if
 
     ! Check for flow form sequences and mappings
@@ -150,72 +170,90 @@ contains
   end subroutine parse_line
 
   subroutine parse_flow_form(line, node)
-    character(len=*), intent(in) :: line
-    type(yaml_node), intent(out) :: node
-    integer :: pos, start, end
-    character(len=:), allocatable :: content
+      character(len=*), intent(in) :: line
+      type(yaml_node), pointer, intent(inout) :: node  ! Changed to pointer
+      integer :: pos, start, end
+      character(len=:), allocatable :: content
 
-    ! Handle flow form sequences
-    if (index(line, '[') > 0) then
-      start = index(line, '[')
-      end = index(line, ']')
-      if (end > start) then
-        content = trim(line(start+1:end-1))
-        call parse_sequence(content, node)
+      ! Handle flow form sequences
+      if (index(line, '[') > 0) then
+          start = index(line, '[')
+          end = index(line, ']')
+          if (end > start) then
+              content = trim(line(start+1:end-1))
+              ! Node is now a pointer, can be passed directly
+              call parse_sequence(content, node)
+          end if
       end if
-    end if
 
-    ! Handle flow form mappings
-    if (index(line, '{') > 0) then
-      start = index(line, '{')
-      end = index(line, '}')
-      if (end > start) then
-        content = trim(line(start+1:end-1))
-        call parse_mapping(content, node)
+      ! Handle flow form mappings
+      if (index(line, '{') > 0) then
+          start = index(line, '{')
+          end = index(line, '}')
+          if (end > start) then
+              content = trim(line(start+1:end-1))
+              call parse_mapping(content, node)
+          end if
       end if
-    end if
   end subroutine parse_flow_form
 
   subroutine parse_sequence(content, node)
-    character(len=*), intent(in) :: content
-    type(yaml_node), intent(out) :: node
-    character(len=:), allocatable :: item
-    integer :: pos
+      ! Modified parameter declarations
+      character(len=:), allocatable, intent(inout) :: content
+      type(yaml_node), pointer, intent(inout) :: node
 
-    ! Split the content by commas to get individual items
-    do
-      pos = index(content, ',')
-      if (pos > 0) then
-        item = trim(content(1:pos-1))
-        content = trim(content(pos+1:))
-      else
-        item = trim(content)
-        content = ''
-      end if
+      ! Local variables
+      character(len=:), allocatable :: item
+      character(len=:), allocatable :: local_content
+      integer :: pos
 
-      ! Create a new node for each item
-      allocate(node%children)
-      call initialize_node(node%children)
-      node%children%value = item
-      node => node%children
-    end do
+      ! Copy input content to local variable for manipulation
+      local_content = content
+
+      ! Split the content by commas to get individual items
+      do
+        pos = index(local_content, ',')
+        if (pos > 0) then
+          item = trim(local_content(1:pos-1))
+          local_content = trim(local_content(pos+1:))
+        else
+          item = trim(local_content)
+          local_content = ''
+        end if
+
+        ! Create a new node for each item
+        allocate(node%children)
+        call initialize_node(node%children)
+        node%children%value = item
+        node => node%children
+
+        if (len(local_content) == 0) exit
+      end do
+
+      ! Update the original content
+      content = local_content
+
   end subroutine parse_sequence
 
   subroutine parse_mapping(content, node)
-    character(len=*), intent(in) :: content
-    type(yaml_node), intent(out) :: node
+    character(len=*), intent(inout) :: content
+    type(yaml_node), pointer, intent(inout) :: node
     character(len=:), allocatable :: key, value
+    character(len=:), allocatable :: local_content
     integer :: pos
+
+    ! Initialize local content
+    local_content = content
 
     ! Split the content by commas to get individual key-value pairs
     do
-      pos = index(content, ',')
+      pos = index(local_content, ',')
       if (pos > 0) then
         key = trim(content(1:pos-1))
-        content = trim(content(pos+1:))
+        local_content = trim(local_content(pos+1:))
       else
         key = trim(content)
-        content = ''
+        local_content = ''
       end if
 
       ! Split the key-value pair by colon
@@ -237,7 +275,7 @@ contains
   end subroutine parse_mapping
 
   subroutine initialize_node(node)
-    type(yaml_node), intent(out) :: node
+    type(yaml_node), pointer, intent(inout) :: node
     node%key = ''
     node%value = ''
     node%children => null()
@@ -251,19 +289,48 @@ contains
     node%anchor = ''
   end subroutine initialize_node
 
+  subroutine grow_anchors(doc)
+      type(yaml_document), intent(inout) :: doc
+      type(yaml_node), pointer :: temp(:)
+      integer :: old_size, new_size, alloc_stat, i
+
+      ! Get current size
+      old_size = size(doc%anchors)
+      new_size = old_size * 2
+
+      ! Allocate new array
+      allocate(temp(new_size), stat=alloc_stat)
+      if (alloc_stat /= 0) then
+          print *, "Error: Failed to grow anchors array"
+          return
+      endif
+
+      ! Copy existing elements
+      temp(1:old_size) = doc%anchors(1:old_size)
+
+      ! Deallocate old array and reassign
+      deallocate(doc%anchors)
+      doc%anchors => temp
+  end subroutine grow_anchors
+
+! Modified add_anchor subroutine:
   subroutine add_anchor(doc, node)
     type(yaml_document), intent(inout) :: doc
-    type(yaml_node), intent(in) :: node
-    integer :: n
+    type(yaml_node), target, intent(in) :: node
+    integer :: anchor_idx
 
+    ! Check if we need to grow the array
     if (.not. associated(doc%anchors)) then
-      allocate(doc%anchors(1))
-      doc%anchors(1) => node
-    else
-      n = size(doc%anchors)
-      allocate(doc%anchors(n+1))
-      doc%anchors(n+1) => node
+        allocate(doc%anchors(4))  ! Initial size
+        doc%anchor_count = 0
+    else if (doc%anchor_count == size(doc%anchors)) then
+        call grow_anchors(doc)
     end if
+
+    ! Add new anchor
+    doc%anchor_count = doc%anchor_count + 1
+    anchor_idx = doc%anchor_count
+    doc%anchors(anchor_idx) = node  ! Use assignment instead of pointer association
   end subroutine add_anchor
 
   subroutine resolve_alias(doc, alias, node)
@@ -286,9 +353,12 @@ contains
     real :: r_value
     integer :: i_value
     logical :: l_value, is_real, is_int, is_logical
+    integer :: rc
 
     ! Check if the value is a null
-    if (trim(node%value) == 'null' .or. trim(node%value) == '~') then
+    if (to_lower(trim(node%value)) == 'null' .or. &
+        trim(node%value) == '~' .or. &
+        to_lower(trim(node%value)) == 'nan') then
       node%is_null = .true.
       node%value = ''
       return
@@ -303,19 +373,25 @@ contains
     end if
 
     ! Check if the value is a float
-    read(node%value, *, iostat=is_real) r_value
-    if (is_real == 0) then
+    is_real = is_real_string(trim(node%value))
+    if (is_real) then
       node%is_float = .true.
-      write(node%value, '(F6.2)') r_value
-      return
+      read(node%value, *, iostat=rc) r_value
+      if (rc == 0) then
+        write(node%value, '(F6.2)') r_value
+        return
+      endif
     end if
 
     ! Check if the value is an integer
-    read(node%value, *, iostat=is_int) i_value
-    if (is_int == 0) then
+    is_int = is_int_string(trim(node%value))
+    if (is_int) then
       node%is_integer = .true.
-      write(node%value, '(I0)') i_value
-      return
+      read(node%value, *, iostat=rc) r_value
+      if (rc == 0) then
+        write(node%value, '(I0)') r_value
+        return
+      endif
     end if
 
     ! Default to string
@@ -323,6 +399,8 @@ contains
   end subroutine determine_value_type
 
   integer function count_leading_spaces(line)
+    implicit none
+
     character(len=*), intent(in) :: line
     integer :: i
 
@@ -332,5 +410,49 @@ contains
       count_leading_spaces = count_leading_spaces + 1
     end do
   end function count_leading_spaces
+
+  function is_real_string(str) result(is_real)
+    implicit none
+    character(len=*), intent(in) :: str
+    logical :: is_real
+    real :: r_value
+    integer :: iostat
+
+    read(str, *, iostat=iostat) r_value
+    if (iostat == 0) then
+      is_real = .true.
+    else
+      is_real = .false.
+    end if
+  end function is_real_string
+
+  function is_int_string(str) result(is_int)
+    implicit none
+    character(len=*), intent(in) :: str
+    logical :: is_int
+    integer :: i_value
+    integer :: iostat
+
+    read(str, *, iostat=iostat) i_value
+    if (iostat == 0) then
+      is_int = .true.
+    else
+      is_int = .false.
+    end if
+  end function is_int_string
+
+  function to_lower(str) result(lower_str)
+    implicit none
+    character(len=*), intent(in) :: str
+    character(len=len(str)) :: lower_str
+    integer :: i
+
+    lower_str = str
+    do i = 1, len(str)
+      if (iachar(str(i:i)) >= iachar('A') .and. iachar(str(i:i)) <= iachar('Z')) then
+        lower_str(i:i) = achar(iachar(str(i:i)) + 32)
+      end if
+    end do
+  end function to_lower
 
 end module yaml_parser

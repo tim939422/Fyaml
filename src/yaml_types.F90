@@ -20,6 +20,7 @@ module yaml_types
   type :: yaml_document
     type(yaml_node), pointer :: root => null()      ! Pointer to the root node of the document
     type(yaml_node), pointer :: anchors(:) => null()! Array of pointers to nodes with anchors
+    integer :: anchor_count = 0  ! Track current number of anchors
   end type yaml_document
 
 end module yaml_types
