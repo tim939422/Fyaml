@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.10)
 project(Fyaml LANGUAGES Fortran)
 
 # Set the Fortran standard
-set(CMAKE_Fortran_STANDARD 2008)
+set(CMAKE_Fortran_STANDARD 2003)
 set(CMAKE_Fortran_STANDARD_REQUIRED ON)
 
 # Add the source files from the src directory
