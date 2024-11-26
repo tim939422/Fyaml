@@ -17,3 +17,14 @@ person:
   null_value: null
   alias_test: &anchor_name Jane Doe
   alias_reference: *anchor_name
+  float_value: 3.14159
+  int_value: 42
+  bool_true: true
+  bool_false: false
+  nested_sequence:
+    - item1
+    - item2
+    - item3
+  nested_mapping:
+    key1: value1
+    key2: value2
