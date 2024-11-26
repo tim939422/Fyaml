@@ -2,12 +2,17 @@ program yaml_example
   use yaml_types
   use yaml_parser
   implicit none
-  type(yaml_document) :: doc
-  type(yaml_node), pointer :: node
+  type(yaml_document), allocatable :: docs(:)
+  integer :: i
 
-  call parse_yaml('example.yaml', doc)
+  ! Read and parse the YAML file
+  call read_yaml('example.yaml', docs)
 
-  call print_yaml(doc%root, 0)
+  ! Print the parsed YAML content for each document
+  do i = 1, size(docs)
+    print *, 'Document ', i
+    call print_yaml(docs(i)%root, 0)
+  end do
 end program yaml_example
 
 subroutine print_yaml(node, indent)
@@ -47,4 +52,5 @@ subroutine print_yaml(node, indent)
     node => node%next
   end do
 end subroutine print_yaml
+
 
