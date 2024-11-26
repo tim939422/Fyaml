@@ -1,7 +1,10 @@
 module yaml_parser
   use yaml_types
   implicit none
+
 contains
+
+  ! Main subroutine to parse a YAML file
   subroutine parse_yaml(filename, doc)
     character(len=*), intent(in) :: filename
     type(yaml_document), intent(out) :: doc
@@ -9,6 +12,7 @@ contains
     integer :: unit, ios, current_indent, previous_indent
     type(yaml_node), pointer :: current_node, new_node, parent_node
 
+    ! Open the YAML file for reading
     open(unit=unit, file=filename, status='old', action='read', iostat=ios)
     if (ios /= 0) then
       print *, 'Error opening file: ', filename
@@ -19,15 +23,17 @@ contains
     parent_node => null()
     previous_indent = 0
 
+    ! Read the file line by line
     do
       read(unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
-      if (trim(line) == '' .or. line(1:1) == '#') cycle
+      if (trim(line) == '' .or. line(1:1) == '#') cycle  ! Skip empty lines and comments
 
       current_indent = count_leading_spaces(line)
       allocate(new_node)
       call parse_line(trim(line), new_node, doc)
 
+      ! Handle indentation to determine the structure
       if (current_indent > previous_indent) then
         if (associated(current_node)) then
           current_node%children => new_node
@@ -57,6 +63,7 @@ contains
     close(unit)
   end subroutine parse_yaml
 
+  ! Subroutine to parse a single line of YAML
   subroutine parse_line(line, node, doc)
     character(len=*), intent(in) :: line
     type(yaml_node), intent(out) :: node
@@ -66,6 +73,7 @@ contains
     integer :: i_value
     logical :: l_value, is_real, is_int, is_logical
 
+    ! Check if the line is part of a sequence
     if (line(1:1) == '-') then
       node%is_sequence = .true.
       node%key = ''
@@ -95,6 +103,49 @@ contains
       call resolve_alias(doc, trim(node%value(pos+1:)), node)
       return
     end if
+
+    ! Determine the type of the value
+    call determine_value_type(node)
+  end subroutine parse_line
+
+  ! Subroutine to add an anchor to the document
+  subroutine add_anchor(doc, node)
+    type(yaml_document), intent(inout) :: doc
+    type(yaml_node), intent(in) :: node
+    integer :: n
+
+    if (.not. associated(doc%anchors)) then
+      allocate(doc%anchors(1))
+      doc%anchors(1) => node
+    else
+      n = size(doc%anchors)
+      allocate(doc%anchors(n+1))
+      doc%anchors(n+1) => node
+    end if
+  end subroutine add_anchor
+
+  ! Subroutine to resolve an alias
+  subroutine resolve_alias(doc, alias, node)
+    type(yaml_document), intent(in) :: doc
+    character(len=*), intent(in) :: alias
+    type(yaml_node), intent(out) :: node
+    integer :: i
+
+    do i = 1, size(doc%anchors)
+      if (trim(doc%anchors(i)%anchor) == alias) then
+        node = doc%anchors(i)
+        return
+      end if
+    end do
+    print *, 'Error: Alias not found: ', alias
+  end subroutine resolve_alias
+
+  ! Subroutine to determine the type of a value
+  subroutine determine_value_type(node)
+    type(yaml_node), intent(inout) :: node
+    real :: r_value
+    integer :: i_value
+    logical :: l_value, is_real, is_int, is_logical
 
     ! Check if the value is a null
     if (trim(node%value) == 'null' .or. trim(node%value) == '~') then
@@ -129,38 +180,9 @@ contains
 
     ! Default to string
     node%is_string = .true.
-  end subroutine parse_line
+  end subroutine determine_value_type
 
-  subroutine add_anchor(doc, node)
-    type(yaml_document), intent(inout) :: doc
-    type(yaml_node), intent(in) :: node
-    integer :: n
-
-    if (.not. associated(doc%anchors)) then
-      allocate(doc%anchors(1))
-      doc%anchors(1) => node
-    else
-      n = size(doc%anchors)
-      allocate(doc%anchors(n+1))
-      doc%anchors(n+1) => node
-    end if
-  end subroutine add_anchor
-
-  subroutine resolve_alias(doc, alias, node)
-    type(yaml_document), intent(in) :: doc
-    character(len=*), intent(in) :: alias
-    type(yaml_node), intent(out) :: node
-    integer :: i
-
-    do i = 1, size(doc%anchors)
-      if (trim(doc%anchors(i)%anchor) == alias) then
-        node = doc%anchors(i)
-        return
-      end if
-    end do
-    print *, 'Error: Alias not found: ', alias
-  end subroutine resolve_alias
-
+  ! Function to count leading spaces in a line
   integer function count_leading_spaces(line)
     character(len=*), intent(in) :: line
     integer :: i
@@ -171,4 +193,6 @@ contains
       count_leading_spaces = count_leading_spaces + 1
     end do
   end function count_leading_spaces
+
 end module yaml_parser
+
