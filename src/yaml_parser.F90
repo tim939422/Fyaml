@@ -2,12 +2,12 @@ module yaml_parser
   use yaml_types
   implicit none
 contains
-  subroutine parse_yaml(filename, doc)
+  subroutine parse_yaml(filename, docs)
     character(len=*), intent(in) :: filename
-    type(yaml_document), intent(out) :: doc
+    type(yaml_document), allocatable, intent(out) :: docs(:)
     character(len=256) :: line
-    integer :: unit, ios, current_indent, previous_indent
-    type(yaml_node), pointer :: current_node, new_node, parent_node
+    integer :: unit, ios, doc_count
+    type(yaml_document), pointer :: current_doc
 
     ! Open the YAML file for reading
     open(unit=unit, file=filename, status='old', action='read', iostat=ios)
@@ -16,9 +16,8 @@ contains
       return
     end if
 
-    current_node => null()
-    parent_node => null()
-    previous_indent = 0
+    doc_count = 0
+    allocate(docs(0))
 
     ! Read the file line by line
     do
@@ -26,45 +25,41 @@ contains
       if (ios /= 0) exit
       if (trim(line) == '') cycle  ! Skip empty lines
 
-      current_indent = count_leading_spaces(line)
-      allocate(new_node)
-      call parse_line(trim(line), new_node, doc)
-
-      ! Handle indentation to determine the structure
-      if (current_indent > previous_indent) then
-        if (associated(current_node)) then
-          current_node%children => new_node
-        else
-          doc%root => new_node
-        end if
-        parent_node => current_node
-      else if (current_indent < previous_indent) then
-        do while (associated(parent_node) .and. current_indent < previous_indent)
-          current_node => parent_node
-          parent_node => parent_node%next
-          previous_indent = previous_indent - 2
-        end do
-        current_node%next => new_node
-      else
-        if (associated(current_node)) then
-          current_node%next => new_node
-        else
-          doc%root => new_node
-        end if
+      ! Check for document start marker
+      if (trim(line) == '---') then
+        doc_count = doc_count + 1
+        allocate(docs(doc_count))
+        current_doc => docs(doc_count)
+        call initialize_document(current_doc)
+        cycle
       end if
 
-      current_node => new_node
-      previous_indent = current_indent
+      ! Check for document end marker
+      if (trim(line) == '...') then
+        current_doc => null()
+        cycle
+      end if
+
+      ! Parse the line if within a document
+      if (associated(current_doc)) then
+        call parse_line(trim(line), current_doc)
+      end if
     end do
 
     close(unit)
   end subroutine parse_yaml
 
-  subroutine parse_line(line, node, doc)
+  subroutine initialize_document(doc)
+    type(yaml_document), intent(out) :: doc
+    doc%root => null()
+    doc%anchors => null()
+  end subroutine initialize_document
+
+  subroutine parse_line(line, doc)
     character(len=*), intent(in) :: line
-    type(yaml_node), intent(out) :: node
     type(yaml_document), intent(inout) :: doc
-    integer :: pos
+    type(yaml_node), pointer :: new_node, current_node, parent_node
+    integer :: pos, current_indent, previous_indent
     real :: r_value
     integer :: i_value
     logical :: l_value, is_real, is_int, is_logical
@@ -75,40 +70,94 @@ contains
       line = trim(line(1:pos-1))
     end if
 
+    ! Determine the indentation level
+    current_indent = count_leading_spaces(line)
+
+    ! Allocate a new node
+    allocate(new_node)
+    call initialize_node(new_node)
+
     ! Check if the line is part of a sequence
     if (line(1:1) == '-') then
-      node%is_sequence = .true.
-      node%key = ''
-      node%value = trim(line(2:))
+      new_node%is_sequence = .true.
+      new_node%key = ''
+      new_node%value = trim(line(2:))
     else
       pos = index(line, ':')
       if (pos > 0) then
-        node%key = trim(line(1:pos-1))
-        node%value = trim(line(pos+1:))
+        new_node%key = trim(line(1:pos-1))
+        new_node%value = trim(line(pos+1:))
       else
-        node%key = trim(line)
-        node%value = ''
+        new_node%key = trim(line)
+        new_node%value = ''
       end if
     end if
 
     ! Check for anchors
-    pos = index(node%key, '&')
+    pos = index(new_node%key, '&')
     if (pos > 0) then
-      node%anchor = trim(node%key(pos+1:))
-      node%key = trim(node%key(1:pos-1))
-      call add_anchor(doc, node)
+      new_node%anchor = trim(new_node%key(pos+1:))
+      new_node%key = trim(new_node%key(1:pos-1))
+      call add_anchor(doc, new_node)
     end if
 
     ! Check for aliases
-    pos = index(node%value, '*')
+    pos = index(new_node%value, '*')
     if (pos > 0) then
-      call resolve_alias(doc, trim(node%value(pos+1:)), node)
+      call resolve_alias(doc, trim(new_node%value(pos+1:)), new_node)
       return
     end if
 
     ! Determine the type of the value
-    call determine_value_type(node)
+    call determine_value_type(new_node)
+
+    ! Handle indentation to determine the structure
+    current_node => doc%root
+    parent_node => null()
+    previous_indent = 0
+
+    do while (associated(current_node))
+      if (current_indent > previous_indent) then
+        if (associated(current_node%children)) then
+          parent_node => current_node
+          current_node => current_node%children
+        else
+          current_node%children => new_node
+          return
+        end if
+      else if (current_indent < previous_indent) then
+        current_node => parent_node
+        parent_node => null()
+        previous_indent = previous_indent - 2
+      else
+        if (associated(current_node%next)) then
+          current_node => current_node%next
+        else
+          current_node%next => new_node
+          return
+        end if
+      end if
+    end do
+
+    if (.not. associated(doc%root)) then
+      doc%root => new_node
+    end if
   end subroutine parse_line
+
+  subroutine initialize_node(node)
+    type(yaml_node), intent(out) :: node
+    node%key = ''
+    node%value = ''
+    node%children => null()
+    node%next => null()
+    node%is_sequence = .false.
+    node%is_null = .false.
+    node%is_boolean = .false.
+    node%is_integer = .false.
+    node%is_float = .false.
+    node%is_string = .true.
+    node%anchor = ''
+  end subroutine initialize_node
 
   subroutine add_anchor(doc, node)
     type(yaml_document), intent(inout) :: doc
