@@ -1,3 +1,9 @@
+Sent by Copilot:
+Yes, we can extend the Fyaml parser to support YAML special characters and flow form sequences. Flow form sequences are enclosed in square brackets ([ ]) and mappings in curly braces ({ }). Special characters in YAML include :, -, #, &, *, !, |, >, ', ", %, @, and `.
+Updated parse_line Subroutine
+We’ll modify the parse_line subroutine to handle flow form sequences and mappings, as well as special characters.
+FORTRAN
+
 module yaml_parser
   use yaml_types
   implicit none
@@ -93,6 +99,11 @@ contains
       end if
     end if
 
+    ! Check for flow form sequences and mappings
+    if (index(line, '[') > 0 .or. index(line, '{') > 0) then
+      call parse_flow_form(line, new_node)
+    end if
+
     ! Check for anchors
     pos = index(new_node%key, '&')
     if (pos > 0) then
@@ -143,6 +154,93 @@ contains
       doc%root => new_node
     end if
   end subroutine parse_line
+
+  subroutine parse_flow_form(line, node)
+    character(len=*), intent(in) :: line
+    type(yaml_node), intent(out) :: node
+    integer :: pos, start, end
+    character(len=:), allocatable :: content
+
+    ! Handle flow form sequences
+    if (index(line, '[') > 0) then
+      start = index(line, '[')
+      end = index(line, ']')
+      if (end > start) then
+        content = trim(line(start+1:end-1))
+        call parse_sequence(content, node)
+      end if
+    end if
+
+    ! Handle flow form mappings
+    if (index(line, '{') > 0) then
+      start = index(line, '{')
+      end = index(line, '}')
+      if (end > start) then
+        content = trim(line(start+1:end-1))
+        call parse_mapping(content, node)
+      end if
+    end if
+  end subroutine parse_flow_form
+
+  subroutine parse_sequence(content, node)
+    character(len=*), intent(in) :: content
+    type(yaml_node), intent(out) :: node
+    character(len=:), allocatable :: item
+    integer :: pos
+
+    ! Split the content by commas to get individual items
+    do
+      pos = index(content, ',')
+      if (pos > 0) then
+        item = trim(content(1:pos-1))
+        content = trim(content(pos+1:))
+      else
+        item = trim(content)
+        content = ''
+      end if
+
+      ! Create a new node for each item
+      allocate(node%children)
+      call initialize_node(node%children)
+      node%children%value = item
+      node => node%children
+    end do
+  end subroutine parse_sequence
+
+  subroutine parse_mapping(content, node)
+    character(len=*), intent(in) :: content
+    type(yaml_node), intent(out) :: node
+    character(len=:), allocatable :: key, value
+    integer :: pos
+
+    ! Split the content by commas to get individual key-value pairs
+    do
+      pos = index(content, ',')
+      if (pos > 0) then
+        key = trim(content(1:pos-1))
+        content = trim(content(pos+1:))
+      else
+        key = trim(content)
+        content = ''
+      end if
+
+      ! Split the key-value pair by colon
+      pos = index(key, ':')
+      if (pos > 0) then
+        value = trim(key(pos+1:))
+        key = trim(key(1:pos-1))
+      else
+        value = ''
+      end if
+
+      ! Create a new node for each key-value pair
+      allocate(node%children)
+      call initialize_node(node%children)
+      node%children%key = key
+      node%children%value = value
+      node => node%children
+    end do
+  end subroutine parse_mapping
 
   subroutine initialize_node(node)
     type(yaml_node), intent(out) :: node
