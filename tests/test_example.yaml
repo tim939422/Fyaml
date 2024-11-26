@@ -1,0 +1,19 @@
+# This is a test comment
+person:
+  name: Jane Doe
+  age: 25
+  height: 5.7
+  married: false
+  birthdate: 1995-10-20
+  address:
+    street: 456 Elm St
+    city: Othertown
+    state: NY
+  occupation: Data Scientist
+  skills:
+    - R
+    - SQL
+    - Python
+  null_value: null
+  alias_test: &anchor_name Jane Doe
+  alias_reference: *anchor_name
