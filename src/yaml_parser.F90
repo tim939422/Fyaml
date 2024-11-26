@@ -22,11 +22,11 @@ contains
     do
       read(unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
-      if (trim(line) == '') cycle
+      if (trim(line) == '' .or. line(1:1) == '#') cycle
 
       current_indent = count_leading_spaces(line)
       allocate(new_node)
-      call parse_line(trim(line), new_node)
+      call parse_line(trim(line), new_node, doc)
 
       if (current_indent > previous_indent) then
         if (associated(current_node)) then
@@ -57,9 +57,10 @@ contains
     close(unit)
   end subroutine parse_yaml
 
-  subroutine parse_line(line, node)
+  subroutine parse_line(line, node, doc)
     character(len=*), intent(in) :: line
     type(yaml_node), intent(out) :: node
+    type(yaml_document), intent(inout) :: doc
     integer :: pos
     real :: r_value
     integer :: i_value
@@ -80,9 +81,40 @@ contains
       end if
     end if
 
+    ! Check for anchors
+    pos = index(node%key, '&')
+    if (pos > 0) then
+      node%anchor = trim(node%key(pos+1:))
+      node%key = trim(node%key(1:pos-1))
+      call add_anchor(doc, node)
+    end if
+
+    ! Check for aliases
+    pos = index(node%value, '*')
+    if (pos > 0) then
+      call resolve_alias(doc, trim(node%value(pos+1:)), node)
+      return
+    end if
+
+    ! Check if the value is a null
+    if (trim(node%value) == 'null' .or. trim(node%value) == '~') then
+      node%is_null = .true.
+      node%value = ''
+      return
+    end if
+
+    ! Check if the value is a boolean
+    if (trim(node%value) == 'true' .or. trim(node%value) == 'false') then
+      node%is_boolean = .true.
+      l_value = (trim(node%value) == 'true')
+      write(node%value, '(L1)') l_value
+      return
+    end if
+
     ! Check if the value is a float
     read(node%value, *, iostat=is_real) r_value
     if (is_real == 0) then
+      node%is_float = .true.
       write(node%value, '(F6.2)') r_value
       return
     end if
@@ -90,17 +122,44 @@ contains
     ! Check if the value is an integer
     read(node%value, *, iostat=is_int) i_value
     if (is_int == 0) then
+      node%is_integer = .true.
       write(node%value, '(I0)') i_value
       return
     end if
 
-    ! Check if the value is a logical
-    if (trim(node%value) == 'true' .or. trim(node%value) == 'false') then
-      l_value = (trim(node%value) == 'true')
-      write(node%value, '(L1)') l_value
-      return
-    end if
+    ! Default to string
+    node%is_string = .true.
   end subroutine parse_line
+
+  subroutine add_anchor(doc, node)
+    type(yaml_document), intent(inout) :: doc
+    type(yaml_node), intent(in) :: node
+    integer :: n
+
+    if (.not. associated(doc%anchors)) then
+      allocate(doc%anchors(1))
+      doc%anchors(1) => node
+    else
+      n = size(doc%anchors)
+      allocate(doc%anchors(n+1))
+      doc%anchors(n+1) => node
+    end if
+  end subroutine add_anchor
+
+  subroutine resolve_alias(doc, alias, node)
+    type(yaml_document), intent(in) :: doc
+    character(len=*), intent(in) :: alias
+    type(yaml_node), intent(out) :: node
+    integer :: i
+
+    do i = 1, size(doc%anchors)
+      if (trim(doc%anchors(i)%anchor) == alias) then
+        node = doc%anchors(i)
+        return
+      end if
+    end do
+    print *, 'Error: Alias not found: ', alias
+  end subroutine resolve_alias
 
   integer function count_leading_spaces(line)
     character(len=*), intent(in) :: line
