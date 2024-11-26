@@ -1,10 +1,7 @@
 module yaml_parser
   use yaml_types
   implicit none
-
 contains
-
-  ! Main subroutine to parse a YAML file
   subroutine parse_yaml(filename, doc)
     character(len=*), intent(in) :: filename
     type(yaml_document), intent(out) :: doc
@@ -27,7 +24,7 @@ contains
     do
       read(unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
-      if (trim(line) == '' .or. line(1:1) == '#') cycle  ! Skip empty lines and comments
+      if (trim(line) == '') cycle  ! Skip empty lines
 
       current_indent = count_leading_spaces(line)
       allocate(new_node)
@@ -63,7 +60,6 @@ contains
     close(unit)
   end subroutine parse_yaml
 
-  ! Subroutine to parse a single line of YAML
   subroutine parse_line(line, node, doc)
     character(len=*), intent(in) :: line
     type(yaml_node), intent(out) :: node
@@ -72,6 +68,12 @@ contains
     real :: r_value
     integer :: i_value
     logical :: l_value, is_real, is_int, is_logical
+
+    ! Remove inline comments
+    pos = index(line, '#')
+    if (pos > 0) then
+      line = trim(line(1:pos-1))
+    end if
 
     ! Check if the line is part of a sequence
     if (line(1:1) == '-') then
@@ -108,7 +110,6 @@ contains
     call determine_value_type(node)
   end subroutine parse_line
 
-  ! Subroutine to add an anchor to the document
   subroutine add_anchor(doc, node)
     type(yaml_document), intent(inout) :: doc
     type(yaml_node), intent(in) :: node
@@ -124,7 +125,6 @@ contains
     end if
   end subroutine add_anchor
 
-  ! Subroutine to resolve an alias
   subroutine resolve_alias(doc, alias, node)
     type(yaml_document), intent(in) :: doc
     character(len=*), intent(in) :: alias
@@ -140,7 +140,6 @@ contains
     print *, 'Error: Alias not found: ', alias
   end subroutine resolve_alias
 
-  ! Subroutine to determine the type of a value
   subroutine determine_value_type(node)
     type(yaml_node), intent(inout) :: node
     real :: r_value
@@ -182,7 +181,6 @@ contains
     node%is_string = .true.
   end subroutine determine_value_type
 
-  ! Function to count leading spaces in a line
   integer function count_leading_spaces(line)
     character(len=*), intent(in) :: line
     integer :: i
@@ -195,4 +193,3 @@ contains
   end function count_leading_spaces
 
 end module yaml_parser
-
