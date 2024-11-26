@@ -63,7 +63,7 @@ contains
     integer :: pos
     real :: r_value
     integer :: i_value
-    logical :: is_real, is_int
+    logical :: l_value, is_real, is_int, is_logical
 
     if (line(1:1) == '-') then
       node%is_sequence = .true.
@@ -91,6 +91,13 @@ contains
     read(node%value, *, iostat=is_int) i_value
     if (is_int == 0) then
       write(node%value, '(I0)') i_value
+      return
+    end if
+
+    ! Check if the value is a logical
+    if (trim(node%value) == 'true' .or. trim(node%value) == 'false') then
+      l_value = (trim(node%value) == 'true')
+      write(node%value, '(L1)') l_value
       return
     end if
   end subroutine parse_line
