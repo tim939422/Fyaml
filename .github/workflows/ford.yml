@@ -1,0 +1,43 @@
+name: FORD Documentation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install FORD
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install ford
+
+    - name: Install Fortran
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gfortran
+
+    - name: Build Documentation
+      run: ford .ford
+
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./doc
+        force_orphan: true
+        user_name: 'github-actions[bot]'
+        user_email: 'github-actions[bot]@users.noreply.github.com'
+        commit_message: 'docs: update FORD documentation'
