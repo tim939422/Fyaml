@@ -21,5 +21,9 @@ proc_internals: true
 sort: permission-alpha
 print_creation_date: true
 creation_date: %Y-%m-%d %H:%M %z
-license: GPL-3.0
+license: gdfl
 max_frontpage_items: 5
+coloured_edges: true
+exclude_dir: ./tests
+
+{!README.md!}
