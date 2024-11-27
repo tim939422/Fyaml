@@ -19,7 +19,7 @@ program test_fyaml
 
     ! Get all person keys
     person = doc%root%get("person")
-    keys = val%dict_val%keys()
+    keys = person%dict_val%keys()
     print *, "Keys:", keys
 
     ! Get specific values
