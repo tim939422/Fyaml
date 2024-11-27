@@ -29,4 +29,3 @@ module yaml_types
   end type yaml_error
 
 end module yaml_types
-

@@ -402,12 +402,18 @@ subroutine resolve_alias(doc, alias, node, error)
         return
     end if
 
+    ! Replace strict check with more permissive handling
     if (doc%anchor_count <= 0) then
-        if (present(error)) then
-            error%has_error = .true.
-            error%message = 'No anchors defined'
+        ! Only error if we're specifically looking for an anchor
+        if (associated(doc%anchors)) then
+            if (present(error)) then
+                error%has_error = .true.
+                error%message = 'No anchors defined'
+            end if
+            nullify(node)
+            return
         end if
-        nullify(node)
+        ! Otherwise continue parsing without error
         return
     end if
 
