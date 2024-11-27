@@ -23,5 +23,10 @@ module yaml_types
     integer :: anchor_count = 0  ! Track current number of anchors
   end type yaml_document
 
+  type :: yaml_error
+    logical :: has_error = .false.
+    character(len=256) :: message = ''
+  end type yaml_error
+
 end module yaml_types
 

@@ -1,4 +1,5 @@
-# This is a test comment
+---
+# First document
 person:
   name: Jane Doe
   age: 25
@@ -28,3 +29,15 @@ person:
   nested_mapping:
     key1: value1
     key2: value2
+---
+# Second document
+company:
+  name: Example Corp
+  founded: 2001
+  employees: 150
+  departments:
+    - HR
+    - Engineering
+    - Marketing
+  ceo: John Smith
+...

@@ -3,54 +3,66 @@ program yaml_example
   use yaml_parser
   implicit none
   type(yaml_document), allocatable :: docs(:)
-  integer :: i
+  integer :: i, lines_read
 
   ! Read and parse the YAML file
   call read_yaml('example.yaml', docs)
+  lines_read = 0
 
   ! Print the parsed YAML content for each document
   do i = 1, size(docs)
     print *, 'Document ', i
-    call print_yaml(docs(i)%root, 0)
+    call print_yaml(docs(i)%root, 0, lines_read)
+    print *, 'Total lines processed in document ', i, ': ', lines_read
   end do
-end program yaml_example
 
-subroutine print_yaml(node, indent)
-  use yaml_types
-  implicit none
-  type(yaml_node), pointer :: node
-  integer, intent(in) :: indent
-  integer :: i
+contains
 
-  if (.not. associated(node)) return
+  RECURSIVE subroutine print_yaml(node, indent, line_count)
+    use yaml_types
+    implicit none
+    type(yaml_node), pointer :: node
+    integer, intent(in) :: indent
+    integer, intent(inout) :: line_count
+    integer :: i
 
-  do while (associated(node))
-    do i = 1, indent
-      write(*, '(A)', advance='no') '  '
-    end do
-    if (node%is_sequence) then
-      write(*, '(A)', advance='no') '- '
-    else
-      write(*, '(A, A)', advance='no') node%key, ': '
-    end if
-    if (associated(node%children)) then
-      write(*, '(A)') ''
-      call print_yaml(node%children, indent + 2)
-    else
-      if (node%is_null) then
-        write(*, '(A)') 'null'
-      else if (node%is_boolean) then
-        write(*, '(A)') trim(node%value)
-      else if (node%is_integer) then
-        write(*, '(A)') trim(node%value)
-      else if (node%is_float) then
-        write(*, '(A)') trim(node%value)
+    if (.not. associated(node)) return
+
+    do while (associated(node))
+      line_count = line_count + 1
+
+      ! Print indentation
+      do i = 1, indent
+        write(*, '(A)', advance='no') '  '
+      end do
+
+      ! Print node content
+      if (node%is_sequence) then
+        write(*, '(A)', advance='no') '- '
       else
-        write(*, '(A)') node%value
+        write(*, '(A, A)', advance='no') trim(node%key), ': '
       end if
-    end if
-    node => node%next
-  end do
-end subroutine print_yaml
 
+      ! Handle children or values
+      if (associated(node%children)) then
+        write(*, '(A)') ''
+        call print_yaml(node%children, indent + 2, line_count)
+      else
+        if (node%is_null) then
+          write(*, '(A)') 'null'
+        else if (node%is_boolean) then
+          write(*, '(A)') trim(node%value)
+        else if (node%is_integer) then
+          write(*, '(A)') trim(node%value)
+        else if (node%is_float) then
+          write(*, '(A)') trim(node%value)
+        else
+          write(*, '(A)') trim(node%value)
+        end if
+      end if
+
+      node => node%next
+    end do
+  end subroutine print_yaml
+end program yaml_example
 

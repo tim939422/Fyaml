@@ -74,7 +74,8 @@ contains
   subroutine parse_line(line, doc)
     character(len=*), intent(in) :: line
     type(yaml_document), intent(inout) :: doc
-    type(yaml_node), pointer :: new_node, current_node, parent_node
+    type(yaml_node), pointer :: new_node, current_node, parent_node, alias_node
+    type(yaml_error) :: err
     integer :: pos, current_indent, previous_indent
     real :: r_value
     integer :: i_value
@@ -129,8 +130,14 @@ contains
     ! Check for aliases
     pos = index(new_node%value, '*')
     if (pos > 0) then
-      call resolve_alias(doc, trim(new_node%value(pos+1:)), new_node)
-      return
+        call resolve_alias(doc, trim(new_node%value(pos+1:)), alias_node, err)
+        if (.not. err%has_error .and. associated(alias_node)) then
+            new_node = alias_node
+            deallocate(alias_node)
+        else
+            print *, trim(err%message)
+        end if
+        return
     end if
 
     ! Determine the type of the value
@@ -239,40 +246,60 @@ contains
     character(len=*), intent(inout) :: content
     type(yaml_node), pointer, intent(inout) :: node
     character(len=:), allocatable :: key, value
-    character(len=:), allocatable :: local_content
-    integer :: pos
+    character(len=:), allocatable :: local_content, pair
+    integer :: pos, content_len
 
-    ! Initialize local content
-    local_content = content
+    ! Safely initialize local content
+    content_len = len_trim(content)
+    if (content_len == 0) return
 
-    ! Split the content by commas to get individual key-value pairs
-    do
-      pos = index(local_content, ',')
-      if (pos > 0) then
-        key = trim(content(1:pos-1))
-        local_content = trim(local_content(pos+1:))
-      else
-        key = trim(content)
-        local_content = ''
-      end if
+    allocate(character(len=content_len) :: local_content)
+    local_content = trim(content)
 
-      ! Split the key-value pair by colon
-      pos = index(key, ':')
-      if (pos > 0) then
-        value = trim(key(pos+1:))
-        key = trim(key(1:pos-1))
-      else
-        value = ''
-      end if
+    ! Process key-value pairs
+    do while (len_trim(local_content) > 0)
+        ! Get next pair
+        pos = index(local_content, ',')
+        if (pos > 0) then
+            if (allocated(pair)) deallocate(pair)
+            allocate(character(len=pos-1) :: pair)
+            pair = trim(local_content(1:pos-1))
+            local_content = trim(local_content(pos+1:))
+        else
+            if (allocated(pair)) deallocate(pair)
+            allocate(character(len=len_trim(local_content)) :: pair)
+            pair = trim(local_content)
+            local_content = ''
+        end if
 
-      ! Create a new node for each key-value pair
-      allocate(node%children)
-      call initialize_node(node%children)
-      node%children%key = key
-      node%children%value = value
-      node => node%children
+        ! Process key-value pair
+        pos = index(pair, ':')
+        if (pos > 0) then
+            if (allocated(key)) deallocate(key)
+            if (allocated(value)) deallocate(value)
+
+            allocate(character(len=pos-1) :: key)
+            allocate(character(len=len_trim(pair)-pos) :: value)
+
+            key = trim(pair(1:pos-1))
+            value = trim(pair(pos+1:))
+
+            ! Create new node
+            allocate(node%children)
+            call initialize_node(node%children)
+            node%children%key = key
+            node%children%value = value
+            node => node%children
+        end if
     end do
-  end subroutine parse_mapping
+
+    ! Clean up
+    if (allocated(local_content)) deallocate(local_content)
+    if (allocated(key)) deallocate(key)
+    if (allocated(value)) deallocate(value)
+    if (allocated(pair)) deallocate(pair)
+
+end subroutine parse_mapping
 
   subroutine initialize_node(node)
     type(yaml_node), pointer, intent(inout) :: node
@@ -314,89 +341,159 @@ contains
   end subroutine grow_anchors
 
 ! Modified add_anchor subroutine:
-  subroutine add_anchor(doc, node)
+  subroutine add_anchor(doc, node, error)
     type(yaml_document), intent(inout) :: doc
     type(yaml_node), target, intent(in) :: node
-    integer :: anchor_idx
+    type(yaml_error), intent(out), optional :: error
+    integer :: anchor_idx, alloc_stat
 
-    ! Check if we need to grow the array
+    ! Initialize anchors array if needed
     if (.not. associated(doc%anchors)) then
-        allocate(doc%anchors(4))  ! Initial size
+        allocate(doc%anchors(4), stat=alloc_stat)
+        if (alloc_stat /= 0) then
+            if (present(error)) then
+                error%has_error = .true.
+                error%message = 'Failed to allocate anchors array'
+            end if
+            return
+        endif
         doc%anchor_count = 0
-    else if (doc%anchor_count == size(doc%anchors)) then
+    end if
+
+    ! Grow array if needed
+    if (doc%anchor_count >= size(doc%anchors)) then
         call grow_anchors(doc)
     end if
 
-    ! Add new anchor
+    ! Add new anchor with bounds check
     doc%anchor_count = doc%anchor_count + 1
     anchor_idx = doc%anchor_count
-    doc%anchors(anchor_idx) = node  ! Use assignment instead of pointer association
-  end subroutine add_anchor
 
-  subroutine resolve_alias(doc, alias, node)
+    if (anchor_idx <= size(doc%anchors)) then
+        doc%anchors(anchor_idx) = node
+    else
+        if (present(error)) then
+            error%has_error = .true.
+            error%message = 'Anchor array bounds exceeded'
+        end if
+    end if
+end subroutine add_anchor
+
+! Modified resolve_alias subroutine:
+subroutine resolve_alias(doc, alias, node, error)
     type(yaml_document), intent(in) :: doc
     character(len=*), intent(in) :: alias
-    type(yaml_node), intent(out) :: node
+    type(yaml_node), pointer, intent(inout) :: node  ! Changed to pointer
+    type(yaml_error), intent(out), optional :: error
     integer :: i
+    logical :: found
+    type(yaml_node), pointer :: temp_node
 
-    do i = 1, size(doc%anchors)
-      if (trim(doc%anchors(i)%anchor) == alias) then
-        node = doc%anchors(i)
+    ! Initialize
+    found = .false.
+
+    ! Safety checks
+    if (.not. associated(doc%anchors)) then
+        if (present(error)) then
+            error%has_error = .true.
+            error%message = 'Anchor array not initialized'
+        end if
+        nullify(node)  ! Ensure node is nullified on error
         return
-      end if
+    end if
+
+    if (doc%anchor_count <= 0) then
+        if (present(error)) then
+            error%has_error = .true.
+            error%message = 'No anchors defined'
+        end if
+        nullify(node)
+        return
+    end if
+
+    ! Search for alias with bounds checking
+    do i = 1, min(doc%anchor_count, size(doc%anchors))
+        if (.not. associated(doc%anchors(i)%children)) cycle
+        if (trim(doc%anchors(i)%anchor) == trim(alias)) then
+            ! Allocate new node and copy data
+            allocate(node)
+            node = doc%anchors(i)
+            found = .true.
+            exit
+        end if
     end do
-    print *, 'Error: Alias not found: ', alias
-  end subroutine resolve_alias
+
+    ! Handle not found case
+    if (.not. found) then
+        if (present(error)) then
+            error%has_error = .true.
+            error%message = 'Alias not found: '//trim(alias)
+        end if
+        ! Initialize new node
+        allocate(node)
+        call initialize_node(node)
+    end if
+
+end subroutine resolve_alias
 
   subroutine determine_value_type(node)
     type(yaml_node), intent(inout) :: node
     real :: r_value
     integer :: i_value
-    logical :: l_value, is_real, is_int, is_logical
+    logical :: l_value
+    logical :: is_real, is_int
     integer :: rc
+    character(len=32) :: temp_str  ! Buffer for numeric conversions
 
-    ! Check if the value is a null
+    ! Early exit for empty values
+    if (len_trim(node%value) == 0) then
+        node%is_null = .true.
+        return
+    end if
+
+    ! Check for null values
     if (to_lower(trim(node%value)) == 'null' .or. &
         trim(node%value) == '~' .or. &
         to_lower(trim(node%value)) == 'nan') then
-      node%is_null = .true.
-      node%value = ''
-      return
+        node%is_null = .true.
+        node%value = ''
+        return
     end if
 
-    ! Check if the value is a boolean
+    ! Check for boolean values
     if (trim(node%value) == 'true' .or. trim(node%value) == 'false') then
-      node%is_boolean = .true.
-      l_value = (trim(node%value) == 'true')
-      write(node%value, '(L1)') l_value
-      return
+        node%is_boolean = .true.
+        l_value = (trim(node%value) == 'true')
+        write(temp_str, '(L1)', iostat=rc) l_value
+        if (rc == 0) node%value = trim(temp_str)
+        return
     end if
 
-    ! Check if the value is a float
-    is_real = is_real_string(trim(node%value))
-    if (is_real) then
-      node%is_float = .true.
-      read(node%value, *, iostat=rc) r_value
-      if (rc == 0) then
-        write(node%value, '(F6.2)') r_value
-        return
-      endif
+    ! Check for float values
+    if (is_real_string(trim(node%value))) then
+        read(node%value, *, iostat=rc) r_value
+        if (rc == 0) then
+            node%is_float = .true.
+            write(temp_str, '(G14.6)', iostat=rc) r_value
+            if (rc == 0) node%value = trim(temp_str)
+            return
+        end if
     end if
 
-    ! Check if the value is an integer
-    is_int = is_int_string(trim(node%value))
-    if (is_int) then
-      node%is_integer = .true.
-      read(node%value, *, iostat=rc) r_value
-      if (rc == 0) then
-        write(node%value, '(I0)') r_value
-        return
-      endif
+    ! Check for integer values
+    if (is_int_string(trim(node%value))) then
+        read(node%value, *, iostat=rc) i_value
+        if (rc == 0) then
+            node%is_integer = .true.
+            write(temp_str, '(I0)', iostat=rc) i_value
+            if (rc == 0) node%value = trim(temp_str)
+            return
+        end if
     end if
 
     ! Default to string
     node%is_string = .true.
-  end subroutine determine_value_type
+end subroutine determine_value_type
 
   integer function count_leading_spaces(line)
     implicit none
