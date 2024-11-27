@@ -208,7 +208,6 @@ contains
         val = doc%root%get(key)
         call assert_equal(25, val%int_val, "Nested integer test")
 
-        100 continue
         if (allocated(key)) deallocate(key)
     end subroutine
 
@@ -217,7 +216,6 @@ contains
         type(yaml_dict), pointer :: dict
         type(yaml_value) :: val
         character(len=:), allocatable, dimension(:) :: keys
-        character(len=20) :: key
 
         call doc%load("test_example.yaml")
 
@@ -230,6 +228,7 @@ contains
 
             ! Test dictionary operations
             call assert_equal(4, size(keys), "Number of keys in person")
+
             ! Additional assertions for specific keys can be added here
         end if
     end subroutine

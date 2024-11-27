@@ -308,6 +308,7 @@ contains
         integer :: i
 
         allocate(character(len=32) :: keys(this%count))
+        keys = ""
         current => this%first
         i = 1
         do while (associated(current))
