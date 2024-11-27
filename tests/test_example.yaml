@@ -1,36 +1,66 @@
----
-# First document
 person:
-  name: Jane Doe
-  age: 25
-  height: 5.7
-  married: false
-  birthdate: 1995-10-20
-  address:
-    street: 456 Elm St
-    city: Othertown
-    state: NY
-  occupation: Data Scientist
-  skills:
-    - R
-    - SQL
-    - Python
-  null_value: null
-  alias_test: &anchor_name Jane Doe
-  alias_reference: *anchor_name
-  float_value: 3.14159
-  int_value: 42
-  bool_true: true
-  bool_false: false
-  nested_sequence:
-    - item1
-    - item2
-    - item3
-  nested_mapping:
-    key1: value1
-    key2: value2
----
-# Second document
+  # Test more complex nested structures
+  education:
+    - degree: BSc
+      major: Computer Science
+      year: 2018
+      grades:
+        math: 95.5
+        programming: 98.2
+    - degree: MSc
+      major: Data Science
+      year: 2020
+      thesis:
+        title: ML Applications
+        advisor: Dr. Smith
+
+  # Test arrays with mixed types
+  contact_info:
+    - type: email
+      value: jane@example.com
+      primary: true
+    - type: phone
+      value: 555-0123
+      primary: false
+
+  # Test deeper nesting levels
+  projects:
+    current:
+      - name: Project A
+        details:
+          priority: high
+          deadline: 2023-12-31
+          tasks:
+            - task1
+            - task2
+        team:
+          - role: lead
+            member: Jane
+          - role: dev
+            member: Bob
+    completed:
+      - name: Project B
+        details:
+          date: 2023-06-30
+          outcome: success
+
+  # Test various data formats
+  data_types:
+    integers:
+      positive: 42
+      negative: -17
+      zero: 0
+    floats:
+      pi: 3.14159
+      e: 2.71828
+      negative: -0.5
+    booleans:
+      true_val: true
+      false_val: false
+    strings:
+      empty: ""
+      spaces: "hello world"
+      special: "Line 1\nLine 2"
 company:
   name: Example Corp
   founded: 2001
@@ -40,4 +70,3 @@ company:
     - Engineering
     - Marketing
   ceo: John Smith
-...
