@@ -6,10 +6,11 @@ program test_fyaml
     type(yaml_value) :: val, person
     logical :: success
     character(len=:), allocatable, dimension(:) :: keys
-    character(len=*), parameter :: filename = "example.yaml"
+    character(len=*), parameter :: source_dir = SOURCE_DIR  ! macro
+    character(len=*), parameter :: filename = source_dir //"/"//"example.yaml"
 
     success = .false.
-    write(*,*) 'Loading file:', filename
+    print "('Loading file:', x, a)", filename
     call doc%load(filename, success)
     if (.not. success) then
       write(error_unit,*) 'Error: Failed to load YAML file'
