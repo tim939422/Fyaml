@@ -71,7 +71,7 @@ end program
 ## Testing
 ```bash
 cd build
-ctest --output-on-failure
+ctest --test-dir build/tests --output-on-failure
 ```
 
 ## Documentation

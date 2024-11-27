@@ -40,7 +40,7 @@ git checkout -b feature/your-feature-name
 5. Run the test suite:
 ```bash
 cd build
-ctest --output-on-failure
+ctest --test-dir build/tests --output-on-failure
 ```
 
 ### Submit a Pull Request with:
