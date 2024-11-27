@@ -87,7 +87,7 @@ contains
         logical, intent(out), optional :: success
         type(yaml_document), allocatable :: parsed_docs(:)
         logical :: ok
-        integer :: unit, iostat
+        integer :: unit, iostat, rc
 
         ok = .false.
 
@@ -101,7 +101,7 @@ contains
         close(unit)
 
         ! Parse YAML
-        call parse_yaml(filename, parsed_docs)
+        call parse_yaml(filename, parsed_docs, rc)
         if (allocated(parsed_docs)) then
             if (associated(parsed_docs(1)%root)) then
                 call convert_node_to_dict(parsed_docs(1)%root, this%root)
