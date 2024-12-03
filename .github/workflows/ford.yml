@@ -3,8 +3,6 @@ name: FORD
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
   documentation:
@@ -38,6 +36,7 @@ jobs:
       run: ford ./docs.md
 
     - name: Deploy Documentation
+      if: github.repository == 'bbakernoaa/Fyaml'
       uses: JamesIves/github-pages-deploy-action@v4
       with:
         branch: gh-pages
