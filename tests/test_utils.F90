@@ -238,41 +238,29 @@ contains
 
         call doc%load("test_example.yaml")
 
-        key = "person"
+        key = "company"
         val = doc%root%get(key)
         if (.not. associated(val%dict_val)) then
             test_sequences = ERR_ASSERT
             return
         endif
 
-        key = "skills"
+        ! company.flow_sequence: [1, 2, 3]
+        key = "flow_sequence"
         val = val%get(key)
         if (.not. allocated(val%sequence)) then
+            write(error_unit,*) "Flow sequence not allocated"
             test_sequences = ERR_ASSERT
             return
         endif
-
         call assert_equal(3, size(val%sequence), "Sequence size test", status)
         if (status /= ERR_SUCCESS) then
             test_sequences = status
             return
         endif
-
-        call assert_equal("R", val%sequence(1), "Sequence item 1 test", status)
-        if (status /= ERR_SUCCESS) then
-            test_sequences = status
-            return
-        endif
-
-        call assert_equal("SQL", val%sequence(2), "Sequence item 2 test", status)
-        if (status /= ERR_SUCCESS) then
-            test_sequences = status
-            return
-        endif
-
-        call assert_equal("Python", val%sequence(3), "Sequence item 3 test", status)
-        if (status /= ERR_SUCCESS) then
-            test_sequences = status
+        if (.not. all(val%sequence == ["1", "2", "3"])) then
+            write(error_unit,*) "Flow sequence values not as expected:", val%sequence
+            test_sequences = ERR_ASSERT
             return
         endif
 
