@@ -373,7 +373,7 @@ contains
         character(len=*), intent(in) :: str
         logical :: res
         ! Verify that all characters are digits, dot, or minus
-        res = verify(trim(adjustl(str)), '0123456789.-') == 0
+        res = len_trim(adjustl(str)) > 0 .and. verify(trim(adjustl(str)), '0123456789.-') == 0
     end function is_number
 
     !> Get value associated with key from dictionary
