@@ -179,6 +179,46 @@ contains
             return
         endif
 
+        key = "founded"
+        val = company%get(key)
+        call assert_equal(2001, val%int_val, "Integer value test", status)
+        if (status /= ERR_SUCCESS) then
+            test_basic_types = status
+            return
+        endif
+
+        key = "employees"
+        val = company%get(key)
+        call assert_equal(150, val%int_val, "Integer value test", status)
+        if (status /= ERR_SUCCESS) then
+            test_basic_types = status
+            return
+        endif
+
+        key = "pi"
+        val = company%get(key)
+        call assert_equal(3.14159, val%real_val, "Real value test", status)
+        if (status /= ERR_SUCCESS) then
+            test_basic_types = status
+            return
+        endif
+
+        key = "goodness"
+        val = company%get(key)
+        call assert_equal(.true., val%is_null, "Null value test", status)
+        if (status /= ERR_SUCCESS) then
+            test_basic_types = status
+            return
+        endif
+
+        key = "okay"
+        val = company%get(key)
+        call assert_equal(.true., val%bool_val, "Boolean value test", status)
+        if (status /= ERR_SUCCESS) then
+            test_basic_types = status
+            return
+        endif
+
         if (allocated(key)) deallocate(key)
 
     end function test_basic_types
