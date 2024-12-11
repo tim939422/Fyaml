@@ -15,19 +15,20 @@ jobs:
         compiler: [gfortran-10, gfortran-11, gfortran-12]
     env:
       FC: ${{ matrix.compiler }}
+      BUILD_DIR: build
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -B build
+        run: cmake -S . -B $BUILD_DIR
 
       - name: Build
-        run: cmake --build build
+        run: cmake --build $BUILD_DIR
 
       - name: Test
-        run: ctest --test-dir build/tests/ --output-on-failure
+        run: ctest --test-dir $BUILD_DIR/tests/ --output-on-failure
 
   lint:
     runs-on: ubuntu-latest
