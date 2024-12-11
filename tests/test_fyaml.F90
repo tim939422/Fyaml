@@ -6,8 +6,8 @@ module test_fyaml
 
     contains
 
-    subroutine run_all_tests()
-        integer :: status
+    subroutine run_all_tests(status)
+        integer, intent(inout) :: status
 
         print *, "Running Basic Loading Test..."
         status = test_basic_loading()
@@ -44,5 +44,8 @@ program test_fyaml_main
     use test_fyaml
     implicit none
 
-    call run_all_tests()
+    integer :: status
+
+    call run_all_tests(status)
+    if (status /= 0) error stop
 end program test_fyaml_main
