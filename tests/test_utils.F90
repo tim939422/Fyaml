@@ -173,7 +173,7 @@ contains
         ! Example:
         key = "name"
         val = company%get(key)
-        call assert_equal_string("Example Corp", val%str_val, "String value test", status)
+        call assert_equal("Example Corp", val%str_val, "String value test", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
@@ -218,19 +218,19 @@ contains
             return
         endif
 
-        call assert_equal_string("R", val%sequence(1), "Sequence item 1 test", status)
+        call assert_equal("R", val%sequence(1), "Sequence item 1 test", status)
         if (status /= ERR_SUCCESS) then
             test_sequences = status
             return
         endif
 
-        call assert_equal_string("SQL", val%sequence(2), "Sequence item 2 test", status)
+        call assert_equal("SQL", val%sequence(2), "Sequence item 2 test", status)
         if (status /= ERR_SUCCESS) then
             test_sequences = status
             return
         endif
 
-        call assert_equal_string("Python", val%sequence(3), "Sequence item 3 test", status)
+        call assert_equal("Python", val%sequence(3), "Sequence item 3 test", status)
         if (status /= ERR_SUCCESS) then
             test_sequences = status
             return
