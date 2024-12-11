@@ -4,12 +4,12 @@ company:
   founded: 2001
   employees: 150
   flow_sequence: [1, 2, 3]
-  flow_sequence_float: [1.1, 2.2, 3.3]
-  flow_sequence_string: ["one", "two", "three"]
-  departments:
-    - HR
-    - Engineering
-    - Marketing
+  # flow_sequence_float: [1.1, 2.2, 3.3]
+  # flow_sequence_string: ["one", "two", "three"]
+  # departments:
+  #   - HR
+  #   - Engineering
+  #   - Marketing
   # integers:
   #   - 42
   #   - -17

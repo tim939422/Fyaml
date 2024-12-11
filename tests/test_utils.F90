@@ -163,7 +163,7 @@ contains
         endif
         company = val%dict_val
         ! Assuming keys() returns an integer for size
-        call assert_equal(4, size(company%keys()), "Number of keys in company", status)
+        call assert_equal(8, size(company%keys()), "Number of keys in company", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
@@ -246,8 +246,7 @@ contains
         endif
 
         ! company.flow_sequence: [1, 2, 3]
-        key = "flow_sequence"
-        val = val%get(key)
+        val = val%get("flow_sequence")
         if (.not. allocated(val%sequence)) then
             write(error_unit,*) "Flow sequence not allocated"
             test_sequences = ERR_ASSERT

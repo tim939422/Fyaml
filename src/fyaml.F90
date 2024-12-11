@@ -339,10 +339,11 @@ contains
     !!
     !! @param[in]  str String to check
     !! @return     True if string starts with '[' (flow-style) or contains '- ' (block-style)
-    function is_sequence(str) result(res)
+    logical function is_sequence(str) result(res)
         character(len=*), intent(in) :: str
-        logical :: res
-        res = (len_trim(str) > 0) .and. (str(1:1) == '[' .or. index(str, '- ') > 0)
+        character(len=2) :: first_chars
+        first_chars = adjustl(str)
+        res = (len_trim(first_chars) > 0) .and. (first_chars(1:1) == '[' .or. first_chars(1:2) == '- ')
     end function is_sequence
 
     !> Check if string represents null
@@ -412,7 +413,7 @@ contains
         if (this%count > 0) then
             allocate(character(len=32) :: keys(this%count))
             keys = ""
-            current = this%first
+            current => this%first
             i = 1
             do while (associated(current))
                 keys(i) = current%key
