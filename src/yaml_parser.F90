@@ -188,8 +188,6 @@ contains
             exit
         endif
 
-        line = adjustl(line)
-
         if (starts_with_trimmed(line, '---')) then
             ! New document starts
             if (doc_count > size(docs)) then
@@ -287,7 +285,7 @@ end subroutine parse_yaml
     if (len_trim(local_line) == 0) return
 
     ! Determine indentation and sequence status
-    current_indent = count_leading_spaces(local_line)
+    current_indent = count_leading_spaces(line)
     is_sequence_item = (index(trim(local_line), '-') == 1)
 
     ! ! Memory allocation and validation checks
