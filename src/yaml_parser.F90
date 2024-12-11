@@ -41,7 +41,7 @@ module yaml_parser
 
   ! Module variables
   !=================
-  integer :: debug_level = DEBUG_ERROR
+  integer :: debug_level = DEBUG_VERBOSE
 
 contains
 
