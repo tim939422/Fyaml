@@ -13,6 +13,8 @@ jobs:
       fail-fast: false
       matrix:
         compiler: [gfortran-10, gfortran-11, gfortran-12]
+    env:
+      FC: ${{ matrix.compiler }}
 
     steps:
       - name: Checkout Code
