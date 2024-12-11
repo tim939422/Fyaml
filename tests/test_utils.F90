@@ -197,7 +197,7 @@ contains
 
         key = "pi"
         val = company%get(key)
-        call assert_equal(3.14159, val%real_val, "Real value test", status)
+        call assert_equal(3.14159, val%real_val, "Real value test", status=status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
