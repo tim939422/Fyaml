@@ -147,7 +147,7 @@ contains
         character(len=256), allocatable, dimension(:) :: temp_seq
 
         ! Initialize
-        local_str = trim(str)
+        local_str = trim(adjustl(str))
         len_str = len_trim(local_str)
 
         ! Check if the sequence is flow-style
