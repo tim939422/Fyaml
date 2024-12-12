@@ -286,7 +286,7 @@ end subroutine parse_yaml
 
     ! Determine indentation and sequence status
     current_indent = count_leading_spaces(line)
-    is_sequence_item = (index(trim(local_line), '-') == 1)
+    is_sequence_item = (index(adjustl(local_line), '-') == 1)
 
     ! ! Memory allocation and validation checks
     ! if (.not. associated(new_node)) then

@@ -251,8 +251,8 @@ contains
             allocate(new_pair)
             new_pair%key = adjustl(current%key)
 
-            write(msg, "('key=', a, '|', 'value=', a, '|', 'has-children=', l1)") &
-                current%key, current%value, associated(current%children)
+            write(msg, "('key=', a, '|', 'value=', a, '|', 'has-children=', l1, '|', 'is-sequence-item=', l1)") &
+                current%key, current%value, associated(current%children), current%is_sequence
             call debug_print(DEBUG_INFO, trim(msg))
 
             if (associated(current%children)) then
