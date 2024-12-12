@@ -392,6 +392,10 @@ contains
         do while (associated(current))
             if (current%key == key) then
                 val = current%value
+                ! FIXME: Without this, the elements of the sequence after the first are filled with junk
+                if (allocated(current%value%sequence)) then
+                    val%sequence = current%value%sequence
+                end if
                 return
             endif
             current => current%next

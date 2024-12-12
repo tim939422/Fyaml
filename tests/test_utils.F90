@@ -227,7 +227,8 @@ contains
         type(fyaml_doc) :: doc
         type(yaml_value) :: val
         character(len=:), allocatable :: key
-        integer :: status
+        character(len=1), parameter :: flowseq1_exp(3) = ["1", "2", "3"]
+        integer :: i, status
 
         test_sequences = ERR_SUCCESS
         call safe_allocate_string(key, 20, status)
@@ -245,23 +246,30 @@ contains
             return
         endif
 
-        ! company.flow_sequence: [1, 2, 3]
+        ! NOTE: should be integer, but only strings supported for now
         val = val%get("flow_sequence")
         if (.not. allocated(val%sequence)) then
             write(error_unit,*) "Flow sequence not allocated"
             test_sequences = ERR_ASSERT
             return
         endif
-        call assert_equal(3, size(val%sequence), "Sequence size test", status)
+        call assert_equal(size(flowseq1_exp), size(val%sequence), "Sequence size test", status)
         if (status /= ERR_SUCCESS) then
             test_sequences = status
             return
         endif
-        if (.not. all(val%sequence == ["1", "2", "3"])) then
-            write(error_unit,*) "Flow sequence values not as expected:", val%sequence
-            test_sequences = ERR_ASSERT
+        call assert_equal(256, len(val%sequence(1)), "Sequence element length test", status)
+        if (status /= ERR_SUCCESS) then
+            test_sequences = status
             return
         endif
+        do i = 1, size(val%sequence)
+            call assert_equal(flowseq1_exp(i), trim(val%sequence(i)), "Sequence element test", status)
+            if (status /= ERR_SUCCESS) then
+                test_sequences = status
+                return
+            endif
+        end do
 
         if (allocated(key)) deallocate(key)
     end function
