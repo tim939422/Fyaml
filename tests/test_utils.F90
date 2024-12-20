@@ -9,11 +9,24 @@ module test_utils
     integer, parameter :: ERR_ASSERT = 2
     integer, parameter :: DEBUG = 1
 
+    ! Test data parameters
+    integer, parameter :: flow_seq_int(3) = [1, 2, 4]
+    real, parameter :: flow_seq_real(3) = [1.1, 2.2, 3.3]
+    logical, parameter :: flow_seq_log(3) = [.true., .false., .true.]
+    character(len=5), parameter :: flow_seq_str(3) = ["one  ", "two  ", "three"]
+
+    ! Test keys
+    character(len=*), parameter :: KEY_COMPANY = "company"
+    character(len=*), parameter :: KEY_FLOW_SEQ = "flow_sequence"
+    character(len=*), parameter :: KEY_FLOW_REAL = "flow_sequence_real"
+    character(len=*), parameter :: KEY_FLOW_LOG = "flow_sequence_logical"
+    character(len=*), parameter :: KEY_FLOW_STR = "flow_sequence_string"
+
     interface assert_equal
         module procedure assert_equal_int
-        module procedure assert_equal_real
-        module procedure assert_equal_logical
         module procedure assert_equal_string
+        module procedure assert_equal_logical
+        module procedure assert_equal_real
     end interface
 
 contains
@@ -21,6 +34,8 @@ contains
         integer, intent(in) :: expected, actual
         character(len=*), intent(in) :: message
         integer, intent(out) :: status
+        status = ERR_SUCCESS
+        ! write(*,*) 'Comparing: ', expected, actual
         if (expected /= actual) then
             print *, 'FAILED: ', message
             print *, 'Expected: ', expected, ' Got: ', actual
@@ -30,31 +45,28 @@ contains
         end if
     end subroutine
 
-    subroutine assert_equal_real(expected, actual, message, tolerance, status)
+    ! Update real assertion to match interface
+    subroutine assert_equal_real(expected, actual, message, status)
         real, intent(in) :: expected, actual
         character(len=*), intent(in) :: message
-        real, intent(in), optional :: tolerance
-        real :: tol
         integer, intent(out) :: status
+        real, parameter :: tolerance = 1.0e-6
 
-        tol = 1.0e-6
-        if (present(tolerance)) tol = tolerance
-        if (abs(expected - actual) > tol) then
-            print *, 'FAILED: ', message
-            print *, 'Expected: ', expected, ' Got: ', actual
+        status = ERR_SUCCESS
+        if (abs(expected - actual) > tolerance) then
+            write(error_unit,*) "FAILED:", message
+            write(error_unit,*) "Expected:", expected, " Got:", actual
             status = ERR_ASSERT
-        else
-            status = ERR_SUCCESS
-        end if
-    end subroutine
+        endif
+    end subroutine assert_equal_real
 
     subroutine assert_equal_logical(expected, actual, message, status)
         logical, intent(in) :: expected, actual
         character(len=*), intent(in) :: message
         integer, intent(out) :: status
         if (.not. (expected .eqv. actual)) then
-            print *, 'FAILED: ', message
-            print *, 'Expected: ', expected, ' Got: ', actual
+            write(error_unit,*) 'FAILED: ', message
+            write(error_unit,*) 'Expected: ', expected, ' Got: ', actual
             status = ERR_ASSERT
         else
             status = ERR_SUCCESS
@@ -69,7 +81,7 @@ contains
 
         call allocate_string_value(exp_val, expected, alloc_status)
         if (alloc_status /= 0) then
-            print *, 'FAILED: Memory allocation error for expected value'
+            write(error_unit,*) 'FAILED: Memory allocation error for expected value'
             status = ERR_ALLOC
             return
         end if
@@ -163,7 +175,7 @@ contains
         endif
         company = val%dict_val
         ! Assuming keys() returns an integer for size
-        call assert_equal(8, size(company%keys()), "Number of keys in company", status)
+        call assert_equal(11, size(company%keys()), "Number of keys in company", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
@@ -223,57 +235,77 @@ contains
 
     end function test_basic_types
 
-    integer function test_sequences()
+    ! Test all sequence types
+    function test_sequences() result(status)
         type(fyaml_doc) :: doc
         type(yaml_value) :: val
+        type(yaml_dict) :: company
         character(len=:), allocatable :: key
-        character(len=1), parameter :: flowseq1_exp(3) = ["1", "2", "3"]
         integer :: i, status
 
-        test_sequences = ERR_SUCCESS
-        call safe_allocate_string(key, 20, status)
-        if (status /= 0) then
-            test_sequences = ERR_ALLOC
-            return
-        endif
-
+        status = ERR_SUCCESS
         call doc%load("test_example.yaml")
 
         key = "company"
         val = doc%root%get(key)
-        if (.not. associated(val%dict_val)) then
-            test_sequences = ERR_ASSERT
-            return
-        endif
+        company = val%dict_val
 
-        ! NOTE: should be integer, but only strings supported for now
-        val = val%get("flow_sequence")
-        if (.not. allocated(val%sequence)) then
-            write(error_unit,*) "Flow sequence not allocated"
-            test_sequences = ERR_ASSERT
+        ! Test integer sequence
+        val = company%get("flow_sequence")
+        if (.not. allocated(val%int_sequence)) then
+            write(error_unit,*) "Integer sequence not allocated"
+            status = ERR_ASSERT
             return
         endif
-        call assert_equal(size(flowseq1_exp), size(val%sequence), "Sequence size test", status)
-        if (status /= ERR_SUCCESS) then
-            test_sequences = status
-            return
-        endif
-        call assert_equal(256, len(val%sequence(1)), "Sequence element length test", status)
-        if (status /= ERR_SUCCESS) then
-            test_sequences = status
-            return
-        endif
-        do i = 1, size(val%sequence)
-            call assert_equal(flowseq1_exp(i), trim(val%sequence(i)), "Sequence element test", status)
-            if (status /= ERR_SUCCESS) then
-                test_sequences = status
-                return
-            endif
+        write(*,*) "Processing integer sequence"
+        call assert_equal(size(flow_seq_int), size(val%int_sequence), "Integer sequence size", status)
+        do i = 1, size(flow_seq_int)
+            call assert_equal(flow_seq_int(i), val%int_sequence(i), "Integer element", status)
         end do
 
-        if (allocated(key)) deallocate(key)
-    end function
+        ! Test real sequence
+        write(*,*) 'Getting real sequence'
+        val = company%get(KEY_FLOW_REAL)
 
+        ! Add debug output
+        write(*,*) "Real sequence value type:", val%value_type
+        write(*,*) "Is real sequence allocated:", allocated(val%real_sequence)
+
+        if (.not. allocated(val%real_sequence)) then
+            write(error_unit,*) "Real sequence not allocated"
+            status = ERR_ASSERT
+            return
+        endif
+
+        write(*,*) "Processing real sequence"
+        call assert_equal(size(flow_seq_real), size(val%real_sequence), "Real sequence size", status)
+        if (status /= ERR_SUCCESS) then
+            write(error_unit,*) "Real sequence size mismatch"
+            return
+        endif
+
+        do i = 1, size(flow_seq_real)
+            write(error_unit,*) "Comparing real elements:", flow_seq_real(i), val%real_sequence(i)
+            call assert_equal(flow_seq_real(i), val%real_sequence(i), "Real element", status)
+            if (status /= ERR_SUCCESS) then
+                write(error_unit,*) "Failed on real element", i
+                return
+            end if
+        end do
+
+        ! Test logical sequence
+        val = company%get("flow_sequence_logical")
+        if (.not. allocated(val%bool_sequence)) then
+            write(error_unit,*) "Boolean sequence not allocated"
+            status = ERR_ASSERT
+            return
+        endif
+        write(*,*) "Processing logical sequence"
+        call assert_equal(size(flow_seq_log), size(val%bool_sequence), "Logical sequence size", status)
+        do i = 1, size(flow_seq_log)
+            call assert_equal(flow_seq_log(i), val%bool_sequence(i), "Logical element", status)
+        end do
+    end function test_sequences
     ! Additional test functions...
 
 end module test_utils

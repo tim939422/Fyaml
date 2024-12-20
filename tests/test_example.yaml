@@ -3,9 +3,10 @@ company:
   name: Example Corp
   founded: 2001
   employees: 150
-  flow_sequence: [1, 2, 3]
-  # flow_sequence_float: [1.1, 2.2, 3.3]
-  # flow_sequence_string: ["one", "two", "three"]
+  flow_sequence: [1, 2, 4]
+  flow_sequence_real: [1.1, 2.2, 3.3]
+  flow_sequence_logical: [true, false, true]
+  flow_sequence_string: ["one", "two", "three"]
   # departments:
   #   - HR
   #   - Engineering
@@ -25,3 +26,4 @@ company:
   pi: 3.14159
   goodness: ~
   okay: true
+---

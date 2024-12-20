@@ -33,9 +33,14 @@ module fyaml
         integer :: int_val                           !< Integer value
         logical :: bool_val                          !< Boolean value
         logical :: is_null = .false.                 !< Null indicator
-        character(len=:), allocatable, dimension(:) :: sequence !< Sequence value
-        integer :: value_type = 0                    !< Type indicator
+        integer :: value_type = TYPE_STRING          !< Type indicator for both scalar and sequence values
         type(yaml_dict), pointer :: dict_val => null() !< Dictionary value
+
+        ! Sequence values
+        character(len=256), allocatable, dimension(:) :: str_sequence  !< String sequences
+        integer, allocatable, dimension(:) :: int_sequence             !< Integer sequences
+        real, allocatable, dimension(:) :: real_sequence               !< Real sequences
+        logical, allocatable, dimension(:) :: bool_sequence            !< Boolean sequences
     contains
         procedure :: get => get_nested_value !< Get value using dot notation path
     end type yaml_value
@@ -245,6 +250,7 @@ contains
         type(yaml_pair), pointer :: new_pair
         type(yaml_node), pointer :: current
         character(len=256) :: msg
+        character(len=256), allocatable :: items(:)
 
         current => node
         do while (associated(current))
@@ -263,8 +269,11 @@ contains
             else
                 ! Set value based on content
                 if (is_sequence(current%value)) then
+                    write(msg, "('Processing sequence: ', a)") trim(current%value)
+                    call debug_print(DEBUG_VERBOSE, trim(msg))
                     new_pair%value%value_type = TYPE_SEQUENCE
-                    new_pair%value%sequence = fyaml_parse_sequence(current%value)
+                    items = extract_sequence_items(current%value)
+                    call convert_sequence(items, new_pair%value)
                 else if (is_null(current%value)) then
                     new_pair%value%value_type = TYPE_NULL
                     new_pair%value%is_null = .true.
@@ -363,7 +372,11 @@ contains
     function is_boolean(str) result(res)
         character(len=*), intent(in) :: str
         logical :: res
-        res = trim(adjustl(str)) == 'true' .or. trim(adjustl(str)) == 'false'
+        character(len=:), allocatable :: lower_str
+
+        lower_str = to_lower(trim(str))
+        res = (lower_str == 'true' .or. lower_str == 'false' .or. &
+               lower_str == '.true.' .or. lower_str == '.false.')
     end function is_boolean
 
     !> Check if string represents a number
@@ -376,6 +389,20 @@ contains
         ! Verify that all characters are digits, dot, or minus
         res = len_trim(adjustl(str)) > 0 .and. verify(trim(adjustl(str)), '0123456789.-') == 0
     end function is_number
+
+    !> Check if string represents a float
+    !!
+    !! @param[in]  str String to check
+    !! @return     True if string can be read as a real number and contains a dot
+    function is_float(str) result(res)
+        character(len=*), intent(in) :: str
+        logical :: res
+        real :: tmp
+        integer :: rc
+
+        read(str, *, iostat=rc) tmp
+        res = (rc == 0) .and. (index(str, '.') > 0)
+    end function is_float
 
     !> Get value associated with key from dictionary
     !!
@@ -392,10 +419,25 @@ contains
         do while (associated(current))
             if (current%key == key) then
                 val = current%value
-                ! FIXME: Without this, the elements of the sequence after the first are filled with junk
-                if (allocated(current%value%sequence)) then
-                    val%sequence(:) = current%value%sequence
-                end if
+                ! Handle sequence type copying
+                select case (current%value%value_type)
+                    case (TYPE_STRING)
+                        if (allocated(current%value%str_sequence)) then
+                            val%str_sequence = current%value%str_sequence
+                        endif
+                    case (TYPE_INTEGER)
+                        if (allocated(current%value%int_sequence)) then
+                            val%int_sequence = current%value%int_sequence
+                        endif
+                    case (TYPE_REAL)
+                        if (allocated(current%value%real_sequence)) then
+                            val%real_sequence = current%value%real_sequence
+                        endif
+                    case (TYPE_BOOLEAN)
+                        if (allocated(current%value%bool_sequence)) then
+                            val%bool_sequence = current%value%bool_sequence
+                        endif
+                end select
                 return
             endif
             current => current%next
@@ -477,4 +519,174 @@ contains
 
     end function get_nested_value
 
+    ! Count items in a flow sequence [1,2,3] or block sequence
+    function count_sequence_items(str) result(count)
+        character(len=*), intent(in) :: str
+        integer :: count, i, state
+
+        count = 1  ! At least one item
+        state = 0  ! Outside quotes
+
+        if (str(1:1) == '[') then
+            ! Flow sequence
+            do i = 2, len_trim(str)-1
+                if (str(i:i) == '"') then
+                    state = 1 - state  ! Toggle quote state
+                else if (str(i:i) == ',' .and. state == 0) then
+                    count = count + 1
+                end if
+            end do
+        else
+            ! Block sequence
+            count = 1
+        end if
+    end function
+
+    ! Extract items from sequence into array
+    function extract_sequence_items(str) result(items)
+        character(len=*), intent(in) :: str
+        character(len=256), allocatable :: items(:)  ! Match expected 256 length
+        character(len=:), allocatable :: work_str
+        integer :: i, pos, item_count
+
+        ! Initialize
+        work_str = trim(adjustl(str))
+        if (work_str(1:1) == '[') then
+            work_str = work_str(2:len_trim(work_str)-1)
+        endif
+        work_str = trim(adjustl(work_str))
+
+        ! Count items
+        item_count = 1
+        do i = 1, len_trim(work_str)
+            if (work_str(i:i) == ',') item_count = item_count + 1
+        end do
+
+        ! Allocate with fixed 256 length to match test expectation
+        allocate(items(item_count))
+        items = ''
+
+        ! Extract items
+        do i = 1, item_count
+            pos = index(work_str, ',')
+            if (pos > 0) then
+                items(i) = trim(adjustl(work_str(:pos-1)))
+                work_str = work_str(pos+1:)
+            else
+                items(i) = trim(adjustl(work_str))
+            endif
+        end do
+    end function
+
+    function detect_sequence_type(items) result(seq_type)
+        character(len=*), dimension(:), intent(in) :: items
+        integer :: seq_type, i
+        logical :: is_first_real, is_first_boolean
+
+        write(error_unit,*) "Detecting type for items:"
+
+        ! Determine type from first item
+        if (size(items) == 0) then
+            seq_type = TYPE_STRING
+            return
+        endif
+
+        is_first_boolean = is_boolean(trim(items(1)))
+        if (is_first_boolean) then
+            seq_type = TYPE_BOOLEAN
+        else
+            is_first_real = is_float(trim(items(1)))
+            if (is_number(trim(items(1)))) then
+                if (is_first_real) then
+                    seq_type = TYPE_REAL
+                else
+                    seq_type = TYPE_INTEGER
+                endif
+            else
+                seq_type = TYPE_STRING
+                return
+            endif
+        endif
+
+        ! Validate all items match first type
+        do i = 2, size(items)
+            if (is_first_boolean) then
+                if (.not. is_boolean(trim(items(i)))) then
+                    seq_type = TYPE_STRING
+                    write(error_unit,*) "Mixed types detected - defaulting to string"
+                    return
+                endif
+            else if (.not. is_number(trim(items(i)))) then
+                seq_type = TYPE_STRING
+                write(error_unit,*) "Mixed types detected - defaulting to string"
+                return
+            else if (is_first_real .neqv. is_float(trim(items(i)))) then
+                seq_type = TYPE_STRING
+                write(error_unit,*) "Mixed numeric types detected - defaulting to string"
+                return
+            endif
+        end do
+
+        select case (seq_type)
+            case (TYPE_INTEGER)
+                write(error_unit,*) "Detected pure INTEGER sequence"
+            case (TYPE_REAL)
+                write(error_unit,*) "Detected pure REAL sequence"
+            case (TYPE_BOOLEAN)
+                write(error_unit,*) "Detected pure BOOLEAN sequence"
+        end select
+    end function
+
+    subroutine convert_sequence(items, value)
+        character(len=*), dimension(:), intent(in) :: items
+        type(yaml_value), intent(inout) :: value
+        integer :: i, ierr
+
+        value%value_type = detect_sequence_type(items)
+        ! write(error_unit,*) "Converting sequence type:", value%value_type
+
+        select case (value%value_type)
+            case (TYPE_INTEGER)
+                allocate(value%int_sequence(size(items)))
+                do i = 1, size(items)
+                    read(items(i), *, iostat=ierr) value%int_sequence(i)
+                    if (ierr /= 0) then
+                        write(error_unit,*) "Failed converting to integer:", items(i)
+                        value%value_type = TYPE_STRING
+                        deallocate(value%int_sequence)
+                        exit
+                    endif
+                end do
+
+            case (TYPE_REAL)
+                ! write(*,*) "Allocating real sequence, size:", size(items)
+                allocate(value%real_sequence(size(items)))
+                do i = 1, size(items)
+                    read(items(i), *, iostat=ierr) value%real_sequence(i)
+                    if (ierr /= 0) then
+                        write(error_unit,*) "Failed converting to real:", items(i)
+                        value%value_type = TYPE_STRING
+                        deallocate(value%real_sequence)
+                        exit
+                    endif
+                end do
+
+
+            case (TYPE_BOOLEAN)
+                    allocate(value%bool_sequence(size(items)))
+                    do i = 1, size(items)
+                        read(items(i), *, iostat=ierr) value%bool_sequence(i)
+                        if (ierr /= 0) then
+                            write(error_unit,*) "Failed converting to logical:", items(i)
+                            value%value_type = TYPE_STRING
+                            deallocate(value%bool_sequence)
+                            exit
+                        endif
+                    end do
+
+            case default
+                allocate(value%str_sequence(size(items)))
+                value%str_sequence = items
+        end select
+    end subroutine
 end module fyaml
