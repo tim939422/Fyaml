@@ -9,33 +9,43 @@ module test_fyaml
     subroutine run_all_tests(status)
         integer, intent(inout) :: status
 
+        print *, '========================================'
         print *, "Running Basic Loading Test..."
+        print *, " "
         status = test_basic_loading()
         if (status /= ERR_SUCCESS) then
             write(error_unit,*) "Basic Loading Test Failed with status:", status
         else
-            print *, "Basic Loading Test Passed."
+            print *, "Basic Loading Test Passed!!!!!!!"
         endif
 
+        print *, " "
+        print *, '========================================'
         print *, "Running Basic Types Test..."
+        print *, " "
         status = test_basic_types()
         if (status /= ERR_SUCCESS) then
             write(error_unit,*) "Basic Types Test Failed with status:", status
         else
-            print *, "Basic Types Test Passed."
+            print *, "Basic Types Test Passed!!!!!!!"
         endif
 
+        print *, " "
+        print *, '========================================'
         print *, "Running Sequences Test..."
+        print *, " "
         status = test_sequences()
         if (status /= ERR_SUCCESS) then
             write(error_unit,*) "Sequences Test Failed with status:", status
         else
-            print *, "Sequences Test Passed."
+            print *, "Sequences Test Passed!!!!!!!"
         endif
 
         ! Add additional tests here following the same pattern
-
+        print *, " "
+        print *, '========================================'
         print *, "All tests completed."
+        print *, '========================================'
     end subroutine run_all_tests
 
 end module test_fyaml

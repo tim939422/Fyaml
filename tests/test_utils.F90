@@ -14,6 +14,7 @@ module test_utils
     real, parameter :: flow_seq_real(3) = [1.1, 2.2, 3.3]
     logical, parameter :: flow_seq_log(3) = [.true., .false., .true.]
     character(len=5), parameter :: flow_seq_str(3) = ["one  ", "two  ", "three"]
+    character(len=5), parameter :: block_seq_str(3) = ["three", "four ", "five "]
 
     ! Test keys
     character(len=*), parameter :: KEY_COMPANY = "company"
@@ -21,6 +22,7 @@ module test_utils
     character(len=*), parameter :: KEY_FLOW_REAL = "flow_sequence_real"
     character(len=*), parameter :: KEY_FLOW_LOG = "flow_sequence_logical"
     character(len=*), parameter :: KEY_FLOW_STR = "flow_sequence_string"
+    character(len=*), parameter :: KEY_BLOCK_SEQ = "block_sequence_string"
 
     interface assert_equal
         module procedure assert_equal_int
@@ -251,6 +253,7 @@ contains
         company = val%dict_val
 
         ! Test integer sequence
+        write(*,*) '------------ FLOW SEQUECE INT ------------'
         val = company%get("flow_sequence")
         if (.not. allocated(val%int_sequence)) then
             write(error_unit,*) "Integer sequence not allocated"
@@ -264,13 +267,9 @@ contains
         end do
 
         ! Test real sequence
+        write(*,*) '------------ FLOW SEQUECE REAL ------------'
         write(*,*) 'Getting real sequence'
         val = company%get(KEY_FLOW_REAL)
-
-        ! Add debug output
-        write(*,*) "Real sequence value type:", val%value_type
-        write(*,*) "Is real sequence allocated:", allocated(val%real_sequence)
-
         if (.not. allocated(val%real_sequence)) then
             write(error_unit,*) "Real sequence not allocated"
             status = ERR_ASSERT
@@ -294,6 +293,7 @@ contains
         end do
 
         ! Test logical sequence
+        write(*,*) '------------ FLOW SEQUECE LOGICAL ------------'
         val = company%get("flow_sequence_logical")
         if (.not. allocated(val%bool_sequence)) then
             write(error_unit,*) "Boolean sequence not allocated"
@@ -305,6 +305,24 @@ contains
         do i = 1, size(flow_seq_log)
             call assert_equal(flow_seq_log(i), val%bool_sequence(i), "Logical element", status)
         end do
+
+        ! test block squence string
+        write(*,*) '------------ BLOCK SEQUECE STRING ------------'
+        val = company%get("block_sequence_string")
+        if (.not. allocated(val%str_sequence)) then
+            write(error_unit,*) "String sequence not allocated"
+            status = ERR_ASSERT
+            return
+        endif
+        write(*,*) "Processing string sequence"
+        call assert_equal(size(block_seq_str), size(val%str_sequence), "String sequence size", status)
+        do i = 1, size(block_seq_str)
+            call assert_equal(block_seq_str(i), val%str_sequence(i), "String element", status)
+        end do
+        if (status /= ERR_SUCCESS) then
+            write(error_unit,*) "Failed on string sequence"
+            return
+        endif
     end function test_sequences
     ! Additional test functions...
 

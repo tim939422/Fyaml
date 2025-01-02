@@ -7,10 +7,10 @@ company:
   flow_sequence_real: [1.1, 2.2, 3.3]
   flow_sequence_logical: [true, false, true]
   flow_sequence_string: ["one", "two", "three"]
-  # departments:
-  #   - HR
-  #   - Engineering
-  #   - Marketing
+  block_sequence_string:
+    - three
+    - four
+    - five
   # integers:
   #   - 42
   #   - -17
