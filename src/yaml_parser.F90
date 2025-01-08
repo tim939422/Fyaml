@@ -1252,16 +1252,24 @@ end subroutine parse_mapping
                               "' at indent:", current_indent
             call debug_print(DEBUG_INFO, trim(debug_msg))
 
-            ! Check if this could be a better parent (must be at highest valid indent level)
+            ! Check if this could be a better parent
             if (current_indent < item_indent) then
-                ! if (.not. found_match .or. current_indent > indent_level) then
-                if (current_indent > indent_level .or. trim(current%key) .ne. trim(best_candidate%key) ) then
+                if (current_indent > indent_level) then
                     best_candidate => current
                     indent_level = current_indent
                     found_match = .true.
                     write(debug_msg, *) "New best parent: ", trim(current%key), &
                                       " at indent:", current_indent
                     call debug_print(DEBUG_INFO, trim(debug_msg))
+                else if (associated(best_candidate)) then
+                    if (trim(current%key) .ne. trim(best_candidate%key)) then
+                        best_candidate => current
+                        indent_level = current_indent
+                        found_match = .true.
+                        write(debug_msg, *) "New best parent (different key): ", &
+                                          trim(current%key), " at indent:", current_indent
+                        call debug_print(DEBUG_INFO, trim(debug_msg))
+                    endif
                 endif
             endif
         endif
@@ -1298,7 +1306,7 @@ end subroutine parse_mapping
     end do
 
     ! Use the best candidate found
-    if (found_match) then
+    if (found_match .and. associated(best_candidate)) then
         parent => best_candidate
         write(debug_msg, *) "Selected parent: ", trim(parent%key), &
                           " at indent:", parent%indent
