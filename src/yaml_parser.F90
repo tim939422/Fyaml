@@ -1578,7 +1578,7 @@ end subroutine parse_mapping
     character(len=256) :: debug_msg
     logical :: has_valid_parent
 
-    ! Initialize
+    ! Initialize all pointers
     nullify(parent)
     nullify(best_parent)
     nullify(last_valid_parent)
@@ -1630,17 +1630,25 @@ end subroutine parse_mapping
                 ! Check if this node could be a valid parent based on indentation
                 if (current%indent <= parent_level_indent) then
                     ! Update last valid parent if this is more recent or at a better indent level
-                    if (.not. has_valid_parent .or. &
-                        (current%indent > last_valid_parent%indent) .or. &
-                        (current%indent == last_valid_parent%indent .and. &
-                         current%line_num > last_valid_parent%line_num)) then
+                    if (.not. has_valid_parent) then
                         last_valid_parent => current
                         has_valid_parent = .true.
                         write(debug_msg, '(A,A,A,I0,A,I0)') &
-                            "Updated last valid parent: ", trim(adjustl(current%key)), &
+                            "First valid parent: ", trim(adjustl(current%key)), &
                             " at indent ", current%indent, &
                             " line ", current%line_num
                         call debug_print(DEBUG_INFO, debug_msg)
+                    else if (associated(last_valid_parent)) then
+                        if (current%indent > last_valid_parent%indent .or. &
+                            (current%indent == last_valid_parent%indent .and. &
+                             current%line_num > last_valid_parent%line_num)) then
+                            last_valid_parent => current
+                            write(debug_msg, '(A,A,A,I0,A,I0)') &
+                                "Updated last valid parent: ", trim(adjustl(current%key)), &
+                                " at indent ", current%indent, &
+                                " line ", current%line_num
+                            call debug_print(DEBUG_INFO, debug_msg)
+                        endif
                     endif
 
                     ! Check for exact indent match
@@ -1691,7 +1699,7 @@ end subroutine parse_mapping
             "Selected exact indent parent: ", trim(adjustl(parent%key)), &
             " at indent ", parent%indent, &
             " line ", parent%line_num
-    else if (has_valid_parent) then
+    else if (has_valid_parent .and. associated(last_valid_parent)) then
         parent => last_valid_parent
         write(debug_msg, '(A,A,A,I0,A,I0)') &
             "Selected last valid parent: ", trim(adjustl(parent%key)), &
