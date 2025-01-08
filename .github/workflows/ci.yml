@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gfortran-10, gfortran-11, gfortran-12]
+        compiler: [gfortran-10, gfortran-11, gfortran-12, gfortran-13]
     env:
       FC: ${{ matrix.compiler }}
       BUILD_DIR: build
