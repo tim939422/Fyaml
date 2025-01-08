@@ -197,8 +197,9 @@ contains
         ! Get node keys
         if (associated(val%node%children)) then
             node_keys = get_sequence_as_strings(val%node)
-            node_count = size(node_keys)
+            node_count = size(node_keys, dim=1)  ! Add dim=1 to be explicit
         else
+            allocate(character(len=1)::node_keys(0))  ! Initialize empty array
             node_count = 0
         endif
 
@@ -267,7 +268,6 @@ contains
         integer :: val_int
         real :: val_real
         logical :: val_bool
-        character(len=256) :: debug_msg
         logical :: success
         type(yaml_node), pointer :: current  ! Add this declaration
 
@@ -305,8 +305,13 @@ contains
 
         ! Process sequence items
         write(error_unit,*) "Processing sequence items"
-        seq_items = get_sequence_as_strings(val%node)
-        seq_size = size(seq_items)
+        if (associated(val%node%children)) then
+            seq_items = get_sequence_as_strings(val%node)
+            seq_size = size(seq_items, dim=1)
+        else
+            allocate(character(len=1)::seq_items(0))
+            seq_size = 0
+        endif
 
         write(error_unit,*) "Found sequence of size:", seq_size
         write(error_unit,*) "Raw items:", seq_items
@@ -350,7 +355,7 @@ contains
         write(error_unit,*) "Has children:", associated(val%node%children)
 
         seq_items = get_sequence_as_strings(val%node)
-        seq_size = size(seq_items)
+        seq_size = size(seq_items, dim=1)  ! Add dim=1 to be explicit
 
         call assert_equal(size(flow_seq_real), seq_size, "Real sequence size", status)
         if (status /= ERR_SUCCESS) return
@@ -377,7 +382,7 @@ contains
         endif
 
         seq_items = get_sequence_as_strings(val%node)
-        seq_size = size(seq_items)
+        seq_size = size(seq_items, dim=1)  ! Add dim=1 to be explicit
 
         call assert_equal(size(flow_seq_log), seq_size, "Logical sequence size", status)
         if (status /= ERR_SUCCESS) return
@@ -406,7 +411,7 @@ contains
 
         ! Get sequence items
         seq_items = get_sequence_as_strings(val%node)
-        seq_size = size(seq_items)
+        seq_size = size(seq_items, dim=1)  ! Add dim=1 to be explicit
 
         write(*,*) "Sequence length:", seq_size
         if (seq_size > 0) then
@@ -457,7 +462,7 @@ contains
         endif
 
         seq_items = get_sequence_as_strings(val%node)
-        seq_size = size(seq_items)
+        seq_size = size(seq_items, dim=1)  ! Add dim=1 to be explicit
 
         write(*,*) "Sequence length:", seq_size
         if (seq_size > 0) then
@@ -483,7 +488,7 @@ contains
         endif
 
         seq_items = get_sequence_as_strings(val%node)
-        seq_size = size(seq_items)
+        seq_size = size(seq_items, dim=1)  ! Add dim=1 to be explicit
 
         call assert_equal(size(block_seq_real), seq_size, "Block real sequence size", status)
         if (status /= ERR_SUCCESS) return
@@ -510,7 +515,7 @@ contains
         endif
 
         seq_items = get_sequence_as_strings(val%node)
-        seq_size = size(seq_items)
+        seq_size = size(seq_items, dim=1)  ! Add dim=1 to be explicit
 
         call assert_equal(size(block_seq_log), seq_size, "Block logical sequence size", status)
         if (status /= ERR_SUCCESS) return
@@ -531,7 +536,7 @@ contains
         endif
 
         seq_items = get_sequence_as_strings(val%node)
-        seq_size = size(seq_items)
+        seq_size = size(seq_items, dim=1)  ! Add dim=1 to be explicit
 
         call assert_equal(size(block_seq_str), seq_size, "Block string sequence size", status)
         if (status /= ERR_SUCCESS) return
@@ -713,9 +718,9 @@ contains
         type(fyaml_doc) :: doc
         type(yaml_value) :: val
         character(len=:), allocatable :: str_val
-        integer :: int_val, val_int, status  ! Added val_int declaration
+        integer :: int_val, val_int, status
         real :: real_val
-        logical :: success, bool_val  ! Also add bool_val for completeness
+        logical :: success
 
         test_nested_access = ERR_SUCCESS
 

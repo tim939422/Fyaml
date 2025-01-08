@@ -1,29 +1,33 @@
 program test_fyaml
     use fyaml
-    use yaml_parser, only: yaml_node  ! Add this to use yaml_node type
+    use yaml_parser, only: yaml_node
     use yaml_types
     implicit none
 
     type(fyaml_doc) :: doc
     type(yaml_value) :: val, person
     logical :: success
-    character(len=:), allocatable, dimension(:) :: keys
-    character(len=*), parameter :: source_dir = SOURCE_DIR  ! macro
+    character(len=:), allocatable, dimension(:) :: keys  ! Remove initialization
+    character(len=*), parameter :: source_dir = SOURCE_DIR
     character(len=*), parameter :: filename = source_dir //"/"//"example.yaml"
 
     success = .false.
-    print "('Loading file:', x, a)", filename
+    print '(A,1X,A)', 'Loading file:', trim(filename)
     call doc%load(filename, success)
     if (.not. success) then
       write(error_unit,*) 'Error: Failed to load YAML file'
       error stop
     end if
 
+    ! Initialize keys as empty array
+    allocate(character(len=1)::keys(0))
+
     ! Get person node
-    person = doc%get("person")  ! Use get() instead of root%get
+    person = doc%get("person")
 
     ! Get all person keys
     if (associated(person%node%children)) then
+        if (allocated(keys)) deallocate(keys)
         keys = get_keys_from_node(person%node%children)
     endif
     print *, "Keys:", keys
