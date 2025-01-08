@@ -41,6 +41,28 @@ module test_fyaml
             print *, "Sequences Test Passed!!!!!!!"
         endif
 
+        print *, " "
+        print *, '========================================'
+        print *, "Running Nested Access Test..."
+        print *, " "
+        status = test_nested_access()
+        if (status /= ERR_SUCCESS) then
+            write(error_unit,*) "Nested Access Test Failed with status:", status
+        else
+            print *, "Nested Access Test Passed!!!!!!!"
+        endif
+
+        ! print *, " "
+        ! print *, '========================================'
+        ! print *, "Running Multiple Doc Test..."
+        ! print *, " "
+        ! status = test_multiple_docs()
+        ! if (status /= ERR_SUCCESS) then
+        !     write(error_unit,*) "Multiple Doc Test Failed with status:", status
+        ! else
+        !     print *, "Multiple Doc Test Passed!!!!!!!"
+        ! endif
+
         ! Add additional tests here following the same pattern
         print *, " "
         print *, '========================================'

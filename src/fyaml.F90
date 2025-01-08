@@ -3,52 +3,83 @@
 !! This module provides functionality to read and parse YAML files into Fortran
 !! data structures. It supports nested dictionaries, sequences, and various data types.
 !!
-!! @note Currently supports strings, integers, reals, booleans, nulls, sequences and nested structures
-!! @author Barry Baker
-!! @date 2024
-!! @version 0.1.0
-!! @copyright GNU GENERAL PUBLIC LICENSE v3.0
+!! Example:
+!! ```fortran
+!! type(fyaml_doc) :: doc
+!! call doc%load("config.yaml")
+!! value = doc%get("config%nested%key")
+!! ```
+!!
+!! @note Supports strings, integers, reals, booleans, nulls, and sequences
+!! @version 1.0.0
 module fyaml
-    use yaml_parser
+    use yaml_parser, only: yaml_node, check_sequence_node, parse_yaml, debug_print, DEBUG_INFO  ! Add DEBUG_INFO to imports
     use yaml_types
     use, intrinsic :: iso_fortran_env, only: error_unit
     implicit none
 
     private
-    public :: fyaml_doc, yaml_value, yaml_dict, yaml_pair, yaml_wrapper, error_unit
+    public :: fyaml_doc, yaml_value, yaml_dict, yaml_pair, error_unit
+    public :: split_key  ! New utility function
 
-    !> Constants for supported YAML value types
-    integer, parameter :: TYPE_STRING = 1   !< String type
-    integer, parameter :: TYPE_REAL = 2     !< Real number type
-    integer, parameter :: TYPE_INTEGER = 3  !< Integer type
-    integer, parameter :: TYPE_BOOLEAN = 4  !< Boolean type
-    integer, parameter :: TYPE_NULL = 5     !< Null type
-    integer, parameter :: TYPE_SEQUENCE = 6 !< Sequence type
-    integer, parameter :: TYPE_DICT = 7     !< Dictionary type
+    ! Add interface declaration for nested value getters
+    interface get_nested_value
+        module procedure get_value_nested
+        module procedure get_doc_nested
+    end interface
+
+    ! Add interface declaration for safe_allocate_string
+    interface
+        subroutine safe_allocate_string(str, length, status)
+            character(len=:), allocatable, intent(out) :: str
+            integer, intent(in) :: length
+            integer, intent(out) :: status
+        end subroutine safe_allocate_string
+    end interface
+
+    ! Remove these duplicate interface declarations since we have the implementations
+    ! interface
+    !     subroutine determine_value_type(node)
+    !         import :: yaml_node
+    !         type(yaml_node), pointer, intent(inout) :: node
+    !     end subroutine determine_value_type
+    !
+    !     function split_key(path) result(parts)
+    !         import
+    !         character(len=*), intent(in) :: path
+    !         character(len=:), allocatable, dimension(:) :: parts
+    !     end function split_key
+    ! end interface
+
+    ! Add private declarations here
+    private :: get_doc_nested
+    private :: get_nested_str
+    private :: get_nested_int
+    private :: get_nested_real
+    private :: get_nested_bool  ! Add boolean getter
+    private :: get_value_nested
+    private :: find_child_by_key
+    private :: check_sequence_impl ! New private implementation
+    private :: safe_allocate_string
+    private :: determine_value_type ! New private subroutine
 
     !> Value container type supporting multiple YAML data types
     type :: yaml_value
-        character(len=:), allocatable :: str_val     !< String value
-        real :: real_val                             !< Real number value
-        integer :: int_val                           !< Integer value
-        logical :: bool_val                          !< Boolean value
-        logical :: is_null = .false.                 !< Null indicator
-        integer :: value_type = TYPE_STRING          !< Type indicator for both scalar and sequence values
-        type(yaml_dict), pointer :: dict_val => null() !< Dictionary value
-
-        ! Sequence values
-        character(len=256), allocatable, dimension(:) :: str_sequence  !< String sequences
-        integer, allocatable, dimension(:) :: int_sequence             !< Integer sequences
-        real, allocatable, dimension(:) :: real_sequence               !< Real sequences
-        logical, allocatable, dimension(:) :: bool_sequence            !< Boolean sequences
+        type(yaml_node), pointer :: node => null()  ! Direct reference to yaml_parser node
     contains
-        procedure :: get => get_nested_value !< Get value using dot notation path
+        procedure :: get => get_value_nested     !< Get value using dot notation path (rename to avoid conflict)
+        procedure :: get_str => get_string_value    !< Get string value
+        procedure :: get_int => get_integer_value   !< Get integer value
+        procedure :: get_real => get_real_value     !< Get real value
+        procedure :: get_bool => get_boolean_value  !< Get boolean value
+        procedure :: is_null => check_null          !< Check if value is null
+        procedure :: is_sequence => check_sequence_impl  !< Check if value is sequence
     end type yaml_value
 
     !> Dictionary key-value pair type
     type :: yaml_pair
-        character(len=:), allocatable :: key !< Dictionary key
-        type(yaml_value) :: value           !< Value container
+        character(len=:), allocatable :: key     !< Dictionary key
+        type(yaml_value) :: value               !< Value container
         type(yaml_dict), pointer :: nested => null() !< Nested dictionary
         type(yaml_pair), pointer :: next => null()   !< Next pair in linked list
     end type yaml_pair
@@ -63,22 +94,20 @@ module fyaml
         procedure :: keys => get_keys    !< Get all keys
     end type yaml_dict
 
-    !> YAML document container
+    !> Main document type for YAML parsing
     type :: fyaml_doc
-        type(yaml_dict) :: root !< Root dictionary
+        type(yaml_dict), allocatable :: docs(:)  ! Array of documents
+        integer :: n_docs = 0                    ! Number of documents
     contains
-        procedure :: load => load_yaml_doc !< Load YAML from file
+        procedure :: load => load_yaml_doc       !< Load YAML from file
+        procedure :: get => get_doc_nested       !< Get nested value using % delimiter
+        procedure :: get_str => get_nested_str   !< Get string value using % path
+        procedure :: get_int => get_nested_int   !< Get integer value using % path
+        procedure :: get_real => get_nested_real !< Get real value using % path
+        procedure :: get_bool => get_nested_bool !< Get boolean value using % path
+        procedure :: get_doc => get_document     !< Get specific document
+        procedure :: get_default_doc => get_default_doc !< Get value from default document (first document)
     end type fyaml_doc
-
-    !> YAML document wrapper with raw and processed forms
-    type :: yaml_wrapper
-        type(yaml_document) :: raw_doc !< Raw YAML document
-        type(fyaml_doc) :: doc        !< Processed document
-        type(yaml_dict) :: dict       !< Dictionary structure
-    contains
-        procedure :: load => load_yaml_wrapper !< Load and process YAML
-        procedure :: convert => convert_to_dict !< Convert raw to dictionary
-    end type yaml_wrapper
 
 contains
     !> Load YAML document from file
@@ -92,10 +121,14 @@ contains
         logical, intent(out), optional :: success
         type(yaml_document), allocatable :: parsed_docs(:)
         logical :: ok
-        integer :: rc, ios
+        integer :: rc, ios, i
         integer :: unit_num
 
         ok = .false.
+
+        ! Clean up any existing documents
+        if (allocated(this%docs)) deallocate(this%docs)
+        this%n_docs = 0
 
         ! Open the file with a new unit number
         open(newunit=unit_num, file=filename, status='old', action='read', iostat=ios)
@@ -114,200 +147,226 @@ contains
             return
         endif
 
-        ! Convert parsed YAML to dictionary
-        if (associated(parsed_docs(1)%root)) then
-            call convert_node_to_dict(parsed_docs(1)%root, this%root)
-            ok = .true.
-        endif
+        ! Store number of documents and allocate docs array
+        this%n_docs = size(parsed_docs)
+        allocate(this%docs(this%n_docs))
+
+        ! Convert each document
+        do i = 1, this%n_docs
+            if (associated(parsed_docs(i)%root)) then
+                call convert_node_to_dict(parsed_docs(i)%root, this%docs(i))
+                ok = .true.
+            endif
+        end do
+
         deallocate(parsed_docs)
         close(unit_num)
 
         if (present(success)) success = ok
     end subroutine load_yaml_doc
 
-    !> Load and process YAML document through wrapper
-    !!
-    !! @param[in,out] this     The wrapper instance
-    !! @param[in]     filename Path to YAML file
-    subroutine load_yaml_wrapper(this, filename)
-        class(yaml_wrapper), intent(inout) :: this
-        character(len=*), intent(in) :: filename
+    !> Convert a yaml_node to yaml_value
+    function node_to_value(node) result(val)
+        type(yaml_node), pointer, intent(in) :: node
+        type(yaml_value) :: val
 
-        call this%doc%load(filename)
-        call this%convert()
-    end subroutine load_yaml_wrapper
-
-    !> Parse a YAML sequence string into an array (handles both flow and block styles)
-    !!
-    !! @param[in]  str Input sequence string in flow or block style
-    !! @return     Array of sequence items
-    function fyaml_parse_sequence(str) result(seq)
-        implicit none
-        character(len=*), intent(in) :: str
-        character(len=256), allocatable, dimension(:) :: seq
-        integer :: n_commas, i, pos
-        character(len=256) :: item
-        character(len=1024) :: local_str
-        integer :: len_str
-        character(len=256), allocatable, dimension(:) :: temp_seq
-
-        ! Initialize
-        local_str = trim(adjustl(str))
-        len_str = len_trim(local_str)
-
-        ! Check if the sequence is flow-style
-        if (len_str >= 2 .and. local_str(1:1) == '[' .and. local_str(len_str:len_str) == ']') then
-            ! Flow-style sequence: [item1, item2, item3]
-            ! Remove the surrounding brackets
-            local_str = local_str(2:len_str-1)
-            len_str = len_trim(local_str)
-
-            if (len_str == 0) then
-                ! Empty sequence
-                allocate(seq(0))
-                return
-            endif
-
-            ! Count the number of commas to determine the number of items
-            n_commas = 0
-            do i = 1, len_str
-                if (local_str(i:i) == ',') then
-                    n_commas = n_commas + 1
-                endif
-            end do
-            n_commas = n_commas + 1 ! Number of items is commas + 1
-
-            ! Allocate the sequence array
-            allocate(seq(n_commas))
-
-            ! Extract items separated by commas
-            do i = 1, n_commas
-                pos = index(local_str, ',')
-                if (pos > 0) then
-                    item = trim(adjustl(local_str(1:pos-1)))
-                    seq(i) = item
-                    local_str = trim(adjustl(local_str(pos+1:)))
-                else
-                    ! Last item
-                    seq(i) = trim(adjustl(local_str))
-                    local_str = ''
-                endif
-            end do
-
-        else
-            ! Block-style sequence:
-            ! - item1
-            ! - item2
-            ! - item3
-            ! Split the string into lines and extract items starting with '- '
-            n_commas = 0
-            allocate(temp_seq(len_str)) ! Temporary allocation
-
-            i = 1
-            do while (i <= len_str)
-                if (i < len_str) then
-                    if (local_str(i:i) == '-' .and. local_str(i+1:i+1) == ' ') then
-                        n_commas = n_commas + 1
-                        pos = index(local_str(i+2:), char(10)) ! Find newline
-                        if (pos > 0) then
-                            temp_seq(n_commas) = trim(adjustl(local_str(i+2:i+1+pos-1)))
-                            i = i + pos + 1
-                        else
-                            ! Last item without newline
-                            temp_seq(n_commas) = trim(adjustl(local_str(i+2:)))
-                            exit
-                        endif
-                    else
-                        i = i + 1
-                    endif
-                else
-                    i = i + 1
-                endif
-            end do
-
-            if (n_commas > 0) then
-                ! Allocate the sequence array to the actual number of items
-                allocate(seq(n_commas))
-                do i = 1, n_commas
-                    seq(i) = temp_seq(i)
-                end do
-            else
-                ! No items found
-                allocate(seq(0))
-            endif
-            deallocate(temp_seq)
+        if (.not. associated(node)) then
+            val%node => null()
+            return
         endif
 
-    end function fyaml_parse_sequence
+        val%node => node
+    end function
 
-    !> Recursively convert YAML node structure to dictionary
-    !!
-    !! @param[in]     node Input YAML node
-    !! @param[in,out] dict Output dictionary structure
+    !> Get string value from yaml_value
+    function get_string_value(self) result(str_val)
+        class(yaml_value), intent(inout) :: self  ! Changed from intent(in) to intent(inout)
+        character(len=:), allocatable :: str_val
+        logical :: was_string
+
+        if (.not. associated(self%node)) then
+            str_val = ''
+            write(error_unit,*) "DEBUG: Node not associated for string value"
+            return
+        endif
+
+        ! Store if it was already marked as string
+        was_string = self%node%is_string
+
+        ! Force type determination if not already done
+        call determine_value_type(self%node)
+
+        ! If it wasn't originally a string but became one, or was one already
+        if (self%node%is_string .or. was_string) then
+            str_val = trim(self%node%value)
+            write(error_unit,*) "DEBUG: Retrieved string value:", trim(str_val)
+        else
+            str_val = ''
+            write(error_unit,*) "DEBUG: Node is not a string type. Type flags:", &
+                              " is_string=", self%node%is_string, &
+                              " is_integer=", self%node%is_integer, &
+                              " is_float=", self%node%is_float, &
+                              " is_boolean=", self%node%is_boolean
+        endif
+    end function
+
+    !> Get integer value from yaml_value
+    function get_integer_value(self) result(int_val)
+        class(yaml_value), intent(inout) :: self  ! Changed from intent(in) to intent(inout)
+        integer :: int_val
+        integer :: ios
+
+        int_val = 0
+        if (.not. associated(self%node)) then
+            write(error_unit,*) "DEBUG: Node not associated for integer value"
+            return
+        endif
+
+        ! Force type determination if not already done
+        if (.not. self%node%is_integer) then
+            call determine_value_type(self%node)
+        endif
+
+        if (self%node%is_integer) then
+            read(self%node%value, *, iostat=ios) int_val
+            if (ios /= 0) then
+                write(error_unit,*) "DEBUG: Failed to convert value to integer:", trim(self%node%value)
+                int_val = 0
+            else
+                write(error_unit,*) "DEBUG: Successfully converted to integer:", int_val
+            endif
+        else
+            write(error_unit,*) "DEBUG: Node is not an integer type. Value:", trim(self%node%value)
+        endif
+    end function
+
+    !> Get real value from yaml_value
+    function get_real_value(self) result(real_val)
+        class(yaml_value), intent(in) :: self
+        real :: real_val
+
+        real_val = 0.0
+        if (associated(self%node) .and. self%node%is_float) then
+            read(self%node%value, *) real_val
+        endif
+    end function
+
+    !> Get boolean value from yaml_value
+    function get_boolean_value(self) result(bool_val)
+        class(yaml_value), intent(in) :: self
+        logical :: bool_val
+
+        bool_val = .false.
+        if (associated(self%node) .and. self%node%is_boolean) then
+            bool_val = (trim(self%node%value) == 'true')
+        endif
+    end function
+
+    !> Check if value is null
+    function check_null(self) result(is_null)
+        class(yaml_value), intent(in) :: self
+        logical :: is_null
+
+        is_null = .not. associated(self%node) .or. self%node%is_null
+    end function
+
+    !> Check if value is a sequence
+    function check_sequence_impl(self) result(is_seq)
+        class(yaml_value), intent(in) :: self
+        logical :: is_seq
+
+        is_seq = .false.
+        if (associated(self%node)) then
+            is_seq = check_sequence_node(self%node)
+        endif
+    end function check_sequence_impl
+
+    !> Print yaml_node children keys
+    subroutine print_node_children(node, prefix)
+        type(yaml_node), pointer, intent(in) :: node
+        character(len=*), intent(in), optional :: prefix
+        type(yaml_node), pointer :: current
+        character(len=:), allocatable :: indent
+
+        if (.not. associated(node)) then
+            write(error_unit,*) "No node to print children"
+            return
+        endif
+
+        indent = ""
+        if (present(prefix)) indent = prefix
+
+        write(error_unit,*) trim(indent)//"Node key:", trim(node%key)
+        write(error_unit,*) trim(indent)//"Node value:", trim(node%value)
+        write(error_unit,*) trim(indent)//"Has children:", associated(node%children)
+
+        if (associated(node%children)) then
+            write(error_unit,*) trim(indent)//"Children:"
+            current => node%children
+            do while (associated(current))
+                write(error_unit,*) trim(indent)//"  -", trim(current%key), &
+                                  " (value:", trim(current%value), ")", &
+                                  " has_children:", associated(current%children)
+                current => current%next
+            end do
+        endif
+    end subroutine print_node_children
+
+    !> Convert YAML node structure to dictionary
     recursive subroutine convert_node_to_dict(node, dict)
         type(yaml_node), pointer, intent(in) :: node
         type(yaml_dict), intent(inout) :: dict
-        type(yaml_pair), pointer :: new_pair
-        type(yaml_node), pointer :: current
-        character(len=256) :: msg
-        character(len=256), allocatable :: items(:)
+        type(yaml_pair), pointer :: new_pair, last_pair
+        type(yaml_node), pointer :: current, child
+        character(len=256) :: debug_msg
 
         current => node
+        nullify(last_pair)
+
         do while (associated(current))
+            write(debug_msg, '(A,A,A,A)') "Converting node: ", trim(current%key), &
+                                         " Value: ", trim(current%value)
+            call debug_print(DEBUG_INFO, debug_msg)
+
+            ! Create new pair
             allocate(new_pair)
-            new_pair%key = adjustl(current%key)
+            new_pair%key = trim(adjustl(current%key))
+            nullify(new_pair%next)
 
-            write(msg, "('key=', a, '|', 'value=', a, '|', 'has-children=', l1, '|', 'is-sequence-item=', l1)") &
-                current%key, current%value, associated(current%children), current%is_sequence
-            call debug_print(DEBUG_INFO, trim(msg))
+            ! Set direct reference to node
+            new_pair%value%node => current
 
+            ! Handle nested structures more carefully
             if (associated(current%children)) then
+                write(debug_msg, '(A,A)') "Creating nested dictionary for: ", trim(current%key)
+                call debug_print(DEBUG_INFO, debug_msg)
+
+                ! Create nested dictionary
                 allocate(new_pair%nested)
-                new_pair%value%value_type = TYPE_DICT
-                new_pair%value%dict_val => new_pair%nested
+
+                ! Convert children while maintaining node structure
                 call convert_node_to_dict(current%children, new_pair%nested)
-            else
-                ! Set value based on content
-                if (is_sequence(current%value)) then
-                    write(msg, "('Processing sequence: ', a)") trim(current%value)
-                    call debug_print(DEBUG_VERBOSE, trim(msg))
-                    new_pair%value%value_type = TYPE_SEQUENCE
-                    items = extract_sequence_items(current%value)
-                    call convert_sequence(items, new_pair%value)
-                else if (is_null(current%value)) then
-                    new_pair%value%value_type = TYPE_NULL
-                    new_pair%value%is_null = .true.
-                else if (is_boolean(current%value)) then
-                    new_pair%value%value_type = TYPE_BOOLEAN
-                    new_pair%value%bool_val = trim(adjustl(current%value)) == 'true'
-                else if (is_number(current%value)) then
-                    if (index(current%value, '.') > 0) then
-                        new_pair%value%value_type = TYPE_REAL
-                        read(current%value, *) new_pair%value%real_val
-                    else
-                        new_pair%value%value_type = TYPE_INTEGER
-                        read(current%value, *) new_pair%value%int_val
-                    endif
-                else
-                    new_pair%value%value_type = TYPE_STRING
-                    new_pair%value%str_val = adjustl(current%value)
-                endif
-                write(msg, "('got type:', I0)") new_pair%value%value_type
-                call debug_print(DEBUG_INFO, trim(msg))
+
+                ! Ensure nested node reference is preserved
+                new_pair%value%node%children => current%children
             endif
 
+            ! Link into dictionary
             if (.not. associated(dict%first)) then
                 dict%first => new_pair
+            else if (.not. associated(last_pair)) then
+                last_pair => dict%first
+                do while (associated(last_pair%next))
+                    last_pair => last_pair%next
+                end do
+                last_pair%next => new_pair
             else
-                new_pair%next => dict%first
-                dict%first => new_pair
+                last_pair%next => new_pair
             endif
+            last_pair => new_pair
             dict%count = dict%count + 1
 
             current => current%next
-
-            ! Exit loop if end of sequence is reached
-            if (.not. associated(current)) exit
         end do
     end subroutine convert_node_to_dict
 
@@ -344,106 +403,68 @@ contains
         this%count = this%count + 1
     end subroutine set_value
 
-    !> Check if string represents a sequence
-    !!
-    !! @param[in]  str String to check
-    !! @return     True if string starts with '[' (flow-style) or contains '- ' (block-style)
-    logical function is_sequence(str) result(res)
-        character(len=*), intent(in) :: str
-        character(len=2) :: first_chars
-        first_chars = adjustl(str)
-        res = (len_trim(first_chars) > 0) .and. (first_chars(1:1) == '[' .or. first_chars(1:2) == '- ')
-    end function is_sequence
-
-    !> Check if string represents null
-    !!
-    !! @param[in]  str String to check
-    !! @return     True if string equals 'null' or '~'
-    function is_null(str) result(res)
-        character(len=*), intent(in) :: str
-        logical :: res
-        res = trim(adjustl(str)) == 'null' .or. trim(adjustl(str)) == '~'
-    end function is_null
-
-    !> Check if string represents boolean
-    !!
-    !! @param[in]  str String to check
-    !! @return     True if string equals 'true' or 'false'
-    function is_boolean(str) result(res)
-        character(len=*), intent(in) :: str
-        logical :: res
-        character(len=:), allocatable :: lower_str
-
-        lower_str = to_lower(trim(str))
-        res = (lower_str == 'true' .or. lower_str == 'false' .or. &
-               lower_str == '.true.' .or. lower_str == '.false.')
-    end function is_boolean
-
-    !> Check if string represents a number
-    !!
-    !! @param[in]  str String to check
-    !! @return     True if string contains only digits, dot, or minus
-    function is_number(str) result(res)
-        character(len=*), intent(in) :: str
-        logical :: res
-        ! Verify that all characters are digits, dot, or minus
-        res = len_trim(adjustl(str)) > 0 .and. verify(trim(adjustl(str)), '0123456789.-') == 0
-    end function is_number
-
-    !> Check if string represents a float
-    !!
-    !! @param[in]  str String to check
-    !! @return     True if string can be read as a real number and contains a dot
-    function is_float(str) result(res)
-        character(len=*), intent(in) :: str
-        logical :: res
-        real :: tmp
-        integer :: rc
-
-        read(str, *, iostat=rc) tmp
-        res = (rc == 0) .and. (index(str, '.') > 0)
-    end function is_float
-
     !> Get value associated with key from dictionary
-    !!
-    !! @param[in]  this Dictionary instance
-    !! @param[in]  key  Key to lookup
-    !! @return     Value associated with key
     function get_value(this, key) result(val)
-        class(yaml_dict), intent(in) :: this
+        class(yaml_dict), intent(inout) :: this  ! Changed from intent(in) to intent(inout)
         character(len=*), intent(in) :: key
         type(yaml_value) :: val
         type(yaml_pair), pointer :: current
+        character(len=:), allocatable, dimension(:) :: key_parts
+        character(len=:), allocatable :: remaining_path
+        integer :: i, path_start
 
+        write(error_unit,*) "DEBUG: Dictionary get_value for key:", trim(key)
+        val%node => null()
+
+        ! Split key into parts
+        key_parts = split_key(key)
+        write(error_unit,*) "DEBUG: Looking for key part:", trim(key_parts(1))
+
+        ! Start with first level search
         current => this%first
         do while (associated(current))
-            if (current%key == key) then
-                val = current%value
-                ! Handle sequence type copying
-                select case (current%value%value_type)
-                    case (TYPE_STRING)
-                        if (allocated(current%value%str_sequence)) then
-                            val%str_sequence = current%value%str_sequence
-                        endif
-                    case (TYPE_INTEGER)
-                        if (allocated(current%value%int_sequence)) then
-                            val%int_sequence = current%value%int_sequence
-                        endif
-                    case (TYPE_REAL)
-                        if (allocated(current%value%real_sequence)) then
-                            val%real_sequence = current%value%real_sequence
-                        endif
-                    case (TYPE_BOOLEAN)
-                        if (allocated(current%value%bool_sequence)) then
-                            val%bool_sequence = current%value%bool_sequence
-                        endif
-                end select
-                return
+            write(error_unit,*) "DEBUG: Checking pair with key:", trim(current%key), &
+                              " against target:", trim(key_parts(1))
+
+            ! Do exact string comparison after trimming and adjusting
+            if (trim(adjustl(current%key)) == trim(adjustl(key_parts(1)))) then
+                write(error_unit,*) "DEBUG: Found first level match for:", trim(key_parts(1))
+
+                if (size(key_parts) == 1) then
+                    ! Direct match at this level
+                    val%node => current%value%node
+                    ! Ensure type is determined for direct matches
+                    call determine_value_type(val%node)
+                    write(error_unit,*) "DEBUG: Found direct match at first level"
+                    write(error_unit,*) "DEBUG: Node has children:", associated(val%node%children)
+                    write(error_unit,*) "DEBUG: Node value:", trim(val%node%value)
+                    write(error_unit,*) "DEBUG: Is integer:", val%node%is_integer
+                    return
+                else
+                    ! For nested access
+                    val%node => current%value%node
+                    write(error_unit,*) "DEBUG: Node children status:", associated(val%node%children)
+
+                    if (.not. associated(val%node%children)) then
+                        write(error_unit,*) "DEBUG: No children available for nested access"
+                        val%node => null()
+                    else
+                        ! Get remaining path
+                        path_start = len_trim(key_parts(1)) + 2
+                        remaining_path = trim(key(path_start:))
+                        write(error_unit,*) "DEBUG: Continuing with nested path:", trim(remaining_path)
+                        val = val%get(remaining_path)
+                    endif
+                    return
+                endif
             endif
+
+            write(error_unit,*) "DEBUG: Moving to next pair"
             current => current%next
         end do
-        ! If key not found, return null value
-        val%is_null = .true.
+
+        write(error_unit,*) "DEBUG: Key not found in dictionary:", trim(key_parts(1))
+        val%node => null()
     end function get_value
 
     !> Get all keys in dictionary
@@ -471,222 +492,322 @@ contains
         endif
     end function get_keys
 
-    !> Convert raw YAML document to dictionary structure
-    !!
-    !! @param[in,out] this Wrapper instance containing raw and processed forms
-    subroutine convert_to_dict(this)
-        class(yaml_wrapper), intent(inout) :: this
-
-        ! Convert from raw yaml_document to yaml_dict structure
-        if (associated(this%raw_doc%root)) then
-            call convert_node_to_dict(this%raw_doc%root, this%dict)
-        endif
-    end subroutine convert_to_dict
-
-    !> Get nested value using dot notation path
-    !!
-    !! @param[in]  self YAML value instance
-    !! @param[in]  key  Dot-separated path (e.g. "database.host")
-    !! @return     Value at specified path
-    recursive function get_nested_value(self, key) result(val)
-        class(yaml_value), intent(in) :: self
+    !> Get nested value for yaml_value type
+    recursive function get_value_nested(self, key) result(val)
+        class(yaml_value), intent(inout) :: self
         character(len=*), intent(in) :: key
-        type(yaml_value) :: val
-        integer :: dot_pos
-        character(len=:), allocatable :: first_key, rest_path
+        type(yaml_value) :: val, temp_val
+        character(len=:), allocatable, dimension(:) :: key_parts
+        character(len=:), allocatable :: remaining_path
+        type(yaml_node), pointer :: current
+        integer :: i
 
-        dot_pos = index(key, ".")
+        write(error_unit,*) "DEBUG: Starting get_value_nested for key:", trim(key)
+        val%node => null()
 
-        if (dot_pos > 0) then
-            first_key = key(1:dot_pos-1)
-            rest_path = key(dot_pos+1:)
-
-            if (associated(self%dict_val)) then
-                val = self%dict_val%get(first_key)
-                if (.not. val%is_null .and. len_trim(rest_path) > 0) then
-                    val = val%get(rest_path)
-                endif
-            else
-                val%is_null = .true.
-            endif
-        else
-            if (associated(self%dict_val)) then
-                val = self%dict_val%get(key)
-            else
-                val%is_null = .true.
-            endif
-        endif
-
-    end function get_nested_value
-
-    ! Count items in a flow sequence [1,2,3] or block sequence
-    function count_sequence_items(str) result(count)
-        character(len=*), intent(in) :: str
-        integer :: count, i, state
-
-        count = 1  ! At least one item
-        state = 0  ! Outside quotes
-
-        if (str(1:1) == '[') then
-            ! Flow sequence
-            do i = 2, len_trim(str)-1
-                if (str(i:i) == '"') then
-                    state = 1 - state  ! Toggle quote state
-                else if (str(i:i) == ',' .and. state == 0) then
-                    count = count + 1
-                end if
-            end do
-        else
-            ! Block sequence
-            count = 1
-        end if
-    end function
-
-    ! Extract items from sequence into array
-    function extract_sequence_items(str) result(items)
-        character(len=*), intent(in) :: str
-        character(len=256), allocatable :: items(:)  ! Match expected 256 length
-        character(len=:), allocatable :: work_str
-        integer :: i, pos, item_count
-
-        ! Initialize
-        work_str = trim(adjustl(str))
-        if (work_str(1:1) == '[') then
-            work_str = work_str(2:len_trim(work_str)-1)
-        endif
-        work_str = trim(adjustl(work_str))
-
-        ! Count items
-        item_count = 1
-        do i = 1, len_trim(work_str)
-            if (work_str(i:i) == ',') item_count = item_count + 1
-        end do
-
-        ! Allocate with fixed 256 length to match test expectation
-        allocate(items(item_count))
-        items = ''
-
-        ! Extract items
-        do i = 1, item_count
-            pos = index(work_str, ',')
-            if (pos > 0) then
-                items(i) = trim(adjustl(work_str(:pos-1)))
-                work_str = work_str(pos+1:)
-            else
-                items(i) = trim(adjustl(work_str))
-            endif
-        end do
-    end function
-
-    function detect_sequence_type(items) result(seq_type)
-        character(len=*), dimension(:), intent(in) :: items
-        integer :: seq_type, i
-        logical :: is_first_real, is_first_boolean
-
-        write(error_unit,*) "Detecting type for items:"
-
-        ! Determine type from first item
-        if (size(items) == 0) then
-            seq_type = TYPE_STRING
+        if (.not. associated(self%node)) then
+            write(error_unit,*) "DEBUG: Initial node is not associated"
             return
         endif
 
-        is_first_boolean = is_boolean(trim(items(1)))
-        if (is_first_boolean) then
-            seq_type = TYPE_BOOLEAN
+        ! Split key into parts
+        key_parts = split_key(key)
+        write(error_unit,*) "DEBUG: Looking for first key part:", trim(key_parts(1))
+
+        ! Handle direct children mode for better traversal
+        current => self%node
+        if (associated(current%children)) then
+            current => current%children
         else
-            is_first_real = is_float(trim(items(1)))
-            if (is_number(trim(items(1)))) then
-                if (is_first_real) then
-                    seq_type = TYPE_REAL
-                else
-                    seq_type = TYPE_INTEGER
-                endif
-            else
-                seq_type = TYPE_STRING
-                return
-            endif
+            write(error_unit,*) "DEBUG: Node has no children"
+            return
         endif
 
-        ! Validate all items match first type
-        do i = 2, size(items)
-            if (is_first_boolean) then
-                if (.not. is_boolean(trim(items(i)))) then
-                    seq_type = TYPE_STRING
-                    write(error_unit,*) "Mixed types detected - defaulting to string"
+        ! Search through children at this level
+        do while (associated(current))
+            write(error_unit,*) "DEBUG: Checking node key:", trim(current%key), &
+                               " against target:", trim(key_parts(1))
+
+            if (trim(adjustl(current%key)) == trim(adjustl(key_parts(1)))) then
+                write(error_unit,*) "DEBUG: Found match for:", trim(key_parts(1))
+
+                if (size(key_parts) == 1) then
+                    ! Found final target
+                    val%node => current
+                    call determine_value_type(val%node)
+                    write(error_unit,*) "DEBUG: Final target found with value:", trim(val%node%value)
+                    return
+                else
+                    ! Need to traverse deeper
+                    temp_val%node => current
+                    write(error_unit,*) "DEBUG: Going deeper with node:", trim(current%key)
+
+                    ! Build remaining path
+                    remaining_path = ""
+                    do i = 2, size(key_parts)
+                        if (i > 2) remaining_path = trim(remaining_path) // "%"
+                        remaining_path = trim(remaining_path) // trim(key_parts(i))
+                    end do
+                    write(error_unit,*) "DEBUG: Continuing with remaining path:", trim(remaining_path)
+                    val = temp_val%get(remaining_path)
                     return
                 endif
-            else if (.not. is_number(trim(items(i)))) then
-                seq_type = TYPE_STRING
-                write(error_unit,*) "Mixed types detected - defaulting to string"
-                return
-            else if (is_first_real .neqv. is_float(trim(items(i)))) then
-                seq_type = TYPE_STRING
-                write(error_unit,*) "Mixed numeric types detected - defaulting to string"
-                return
             endif
+            current => current%next
         end do
 
-        select case (seq_type)
-            case (TYPE_INTEGER)
-                write(error_unit,*) "Detected pure INTEGER sequence"
-            case (TYPE_REAL)
-                write(error_unit,*) "Detected pure REAL sequence"
-            case (TYPE_BOOLEAN)
-                write(error_unit,*) "Detected pure BOOLEAN sequence"
-        end select
-    end function
+        write(error_unit,*) "DEBUG: Key not found:", trim(key_parts(1))
+    end function get_value_nested
 
-    subroutine convert_sequence(items, value)
-        character(len=*), dimension(:), intent(in) :: items
-        type(yaml_value), intent(inout) :: value
-        integer :: i, ierr
+    !> Get nested value for fyaml_doc type
+    recursive function get_doc_nested(self, path, doc_index) result(val)
+        class(fyaml_doc), intent(inout) :: self  ! Changed from intent(in) to intent(inout)
+        character(len=*), intent(in) :: path
+        integer, intent(in), optional :: doc_index
+        type(yaml_value) :: val
+        integer :: doc_idx
 
-        value%value_type = detect_sequence_type(items)
-        ! write(error_unit,*) "Converting sequence type:", value%value_type
+        doc_idx = 1  ! Default to first document
+        if (present(doc_index)) doc_idx = doc_index
 
-        select case (value%value_type)
-            case (TYPE_INTEGER)
-                allocate(value%int_sequence(size(items)))
-                do i = 1, size(items)
-                    read(items(i), *, iostat=ierr) value%int_sequence(i)
-                    if (ierr /= 0) then
-                        write(error_unit,*) "Failed converting to integer:", items(i)
-                        value%value_type = TYPE_STRING
-                        deallocate(value%int_sequence)
-                        exit
+        if (doc_idx < 1 .or. doc_idx > self%n_docs) then
+            val%node => null()
+            return
+        endif
+
+        val = self%docs(doc_idx)%get(path)
+    end function get_doc_nested
+
+    !> Get nested string value
+    function get_nested_str(self, path, doc_index) result(val)
+        class(fyaml_doc), intent(inout) :: self  ! Changed from intent(in) to intent(inout)
+        character(len=*), intent(in) :: path
+        integer, intent(in), optional :: doc_index
+        character(len=:), allocatable :: val
+        type(yaml_value) :: temp
+
+        write(error_unit,*) "DEBUG: Getting nested string for path:", trim(path)
+
+        temp = self%get(path, doc_index)
+        if (associated(temp%node)) then
+            ! Force type determination
+            call determine_value_type(temp%node)
+
+            ! Mark as string if not already typed
+            if (.not. (temp%node%is_integer .or. temp%node%is_float .or. &
+                      temp%node%is_boolean .or. temp%node%is_null)) then
+                temp%node%is_string = .true.
+            endif
+
+            write(error_unit,*) "DEBUG: Found node value:", trim(temp%node%value)
+            write(error_unit,*) "DEBUG: Node type flags - string:", temp%node%is_string, &
+                              " int:", temp%node%is_integer, &
+                              " float:", temp%node%is_float, &
+                              " bool:", temp%node%is_boolean
+
+            ! Get string value
+            val = trim(temp%node%value)
+            write(error_unit,*) "DEBUG: Returning string value:", trim(val)
+        else
+            write(error_unit,*) "DEBUG: Node not found for path:", trim(path)
+            val = ''
+        endif
+    end function get_nested_str
+
+    !> Get nested integer value
+    function get_nested_int(self, path, doc_index) result(val)
+        class(fyaml_doc), intent(inout) :: self  ! Changed from intent(in) to intent(inout)
+        character(len=*), intent(in) :: path
+        integer, intent(in), optional :: doc_index
+        integer :: val
+        type(yaml_value) :: temp
+
+        write(error_unit,*) "DEBUG: Getting nested integer for path:", trim(path)
+        temp = self%get(path, doc_index)
+        if (associated(temp%node)) then
+            ! Force type determination
+            call determine_value_type(temp%node)
+            val = temp%get_int()
+            write(error_unit,*) "DEBUG: Found integer value:", val
+        else
+            write(error_unit,*) "DEBUG: Node not found, returning 0"
+            val = 0
+        endif
+    end function get_nested_int
+
+    !> Get nested real value
+    function get_nested_real(self, path, doc_index) result(val)
+        class(fyaml_doc), intent(inout) :: self  ! Changed from intent(in) to intent(inout)
+        character(len=*), intent(in) :: path
+        integer, intent(in), optional :: doc_index
+        real :: val
+        type(yaml_value) :: temp
+
+        temp = self%get(path, doc_index)
+        if (associated(temp%node)) then
+            val = temp%get_real()
+        else
+            val = 0.0
+        endif
+    end function get_nested_real
+
+    ! Add boolean nested getter
+    function get_nested_bool(self, path, doc_index) result(val)
+        class(fyaml_doc), intent(inout) :: self  ! Changed from intent(in) to intent(inout)
+        character(len=*), intent(in) :: path
+        integer, intent(in), optional :: doc_index
+        logical :: val
+        type(yaml_value) :: temp
+
+        temp = self%get(path, doc_index)
+        if (associated(temp%node)) then
+            val = temp%get_bool()
+        else
+            val = .false.
+        endif
+    end function get_nested_bool
+
+    !> Get specific document by index
+    function get_document(this, doc_index) result(val)
+        class(fyaml_doc), intent(in) :: this
+        integer, intent(in) :: doc_index
+        type(yaml_dict) :: val  ! Changed from pointer to regular type
+
+        if (doc_index > 0 .and. doc_index <= this%n_docs) then
+            val = this%docs(doc_index)  ! Regular assignment instead of pointer assignment
+        endif
+    end function get_document
+
+    !> Get value from default document (first document)
+    function get_default_doc(this) result(val)
+        class(fyaml_doc), intent(in) :: this
+        type(yaml_dict) :: val
+
+        if (this%n_docs > 0) then
+            val = this%docs(1)
+        endif
+    end function get_default_doc
+
+    ! Update find_child_by_key to only search immediate children
+    function find_child_by_key(node, search_key) result(found_val)
+        type(yaml_node), pointer, intent(in) :: node
+        character(len=*), intent(in) :: search_key
+        type(yaml_value) :: found_val
+        type(yaml_node), pointer :: current
+
+        write(error_unit,*) "DEBUG: Searching for child with key:", trim(search_key)
+        found_val%node => null()
+
+        ! Search only immediate children
+        if (associated(node%children)) then
+            current => node%children
+            do while (associated(current))
+                write(error_unit,*) "DEBUG: Checking child node:", trim(current%key)
+                if (trim(adjustl(current%key)) == trim(adjustl(search_key))) then
+                    write(error_unit,*) "DEBUG: Found matching child node"
+                    found_val%node => current
+                    ! Preserve sequence flags
+                    if (current%is_sequence .and. associated(current%children)) then
+                        current%children%is_sequence = .true.
                     endif
-                end do
+                    return
+                endif
+                current => current%next
+            end do
+        endif
+        write(error_unit,*) "DEBUG: Child not found"
+    end function find_child_by_key
 
-            case (TYPE_REAL)
-                ! write(*,*) "Allocating real sequence, size:", size(items)
-                allocate(value%real_sequence(size(items)))
-                do i = 1, size(items)
-                    read(items(i), *, iostat=ierr) value%real_sequence(i)
-                    if (ierr /= 0) then
-                        write(error_unit,*) "Failed converting to real:", items(i)
-                        value%value_type = TYPE_STRING
-                        deallocate(value%real_sequence)
-                        exit
-                    endif
-                end do
+    !> Split a path by % delimiter
+    function split_key(path) result(parts)
+        character(len=*), intent(in) :: path
+        character(len=:), allocatable, dimension(:) :: parts
+        integer :: n_parts, i, prev_pos, pos
 
+        ! Count parts
+        n_parts = 1
+        do i = 1, len_trim(path)
+            if (path(i:i) == '%') n_parts = n_parts + 1
+        end do
 
-            case (TYPE_BOOLEAN)
-                    allocate(value%bool_sequence(size(items)))
-                    do i = 1, size(items)
-                        read(items(i), *, iostat=ierr) value%bool_sequence(i)
-                        if (ierr /= 0) then
-                            write(error_unit,*) "Failed converting to logical:", items(i)
-                            value%value_type = TYPE_STRING
-                            deallocate(value%bool_sequence)
-                            exit
-                        endif
-                    end do
+        ! Allocate parts array
+        allocate(character(len=32) :: parts(n_parts))
 
-            case default
-                allocate(value%str_sequence(size(items)))
-                value%str_sequence = items
-        end select
-    end subroutine
+        ! Split string
+        prev_pos = 1
+        i = 1
+        do
+            pos = index(path(prev_pos:), '%')
+            if (pos == 0) then
+                parts(i) = trim(adjustl(path(prev_pos:)))
+                exit
+            endif
+            parts(i) = trim(adjustl(path(prev_pos:prev_pos+pos-2)))
+            prev_pos = prev_pos + pos
+            i = i + 1
+        end do
+
+        ! Clean up each part
+        do i = 1, n_parts
+            parts(i) = trim(adjustl(parts(i)))
+        end do
+    end function split_key
+
+    !> Determine the type of a node's value
+    subroutine determine_value_type(node)
+        type(yaml_node), pointer, intent(inout) :: node
+        integer :: int_val, ios
+        real :: real_val
+        character(len=:), allocatable :: cleaned_value
+
+        ! Reset type flags
+        if (.not. associated(node)) then
+            write(error_unit,*) "DEBUG: Cannot determine type for null node"
+            return
+        endif
+
+        node%is_integer = .false.
+        node%is_float = .false.
+        node%is_boolean = .false.
+        node%is_string = .false.
+        node%is_null = .false.
+
+        ! Clean the value
+        cleaned_value = trim(adjustl(node%value))
+
+        if (len_trim(cleaned_value) == 0 .or. cleaned_value == '~') then
+            node%is_null = .true.
+            write(error_unit,*) "DEBUG: Value determined as null"
+            return
+        endif
+
+        ! Try integer first
+        read(cleaned_value, *, iostat=ios) int_val
+        if (ios == 0 .and. index(cleaned_value, '.') == 0 .and. &
+            index(cleaned_value, 'e') == 0 .and. index(cleaned_value, 'E') == 0) then
+            node%is_integer = .true.
+            write(error_unit,*) "DEBUG: Value determined as integer:", int_val
+            return
+        endif
+
+        ! Try real
+        read(cleaned_value, *, iostat=ios) real_val
+        if (ios == 0) then
+            node%is_float = .true.
+            write(error_unit,*) "DEBUG: Value determined as real:", real_val
+            return
+        endif
+
+        ! Check boolean
+        if (cleaned_value == 'true' .or. cleaned_value == 'false') then
+            node%is_boolean = .true.
+            write(error_unit,*) "DEBUG: Value determined as boolean:", trim(cleaned_value)
+            return
+        endif
+
+        ! Default to string
+        node%is_string = .true.
+        write(error_unit,*) "DEBUG: Value determined as string:", trim(cleaned_value)
+    end subroutine determine_value_type
+
 end module fyaml

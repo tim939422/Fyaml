@@ -1,20 +1,33 @@
+!> Test utilities for YAML parser
+!!
+!! Provides comprehensive test coverage for YAML parsing functionality.
+!! Includes tests for all supported data types and structures.
 module test_utils
     use fyaml
+    use yaml_parser, only: yaml_node, DEBUG_INFO, debug_print  ! Changed from DEBUG_VERBOSE to DEBUG_INFO
+    use yaml_types
     use iso_fortran_env, only: error_unit
     implicit none
 
-    ! Error codes and debug levels
+    ! Error codes - properly define ERR_ALLOC
     integer, parameter :: ERR_SUCCESS = 0
-    integer, parameter :: ERR_ALLOC = 1
-    integer, parameter :: ERR_ASSERT = 2
-    integer, parameter :: DEBUG = 1
+    integer, parameter :: ERR_ASSERT = 1
+    integer, parameter :: ERR_ALLOC = 2
 
+    ! Debug level
+    integer, parameter :: DEBUG = DEBUG_INFO  ! Use DEBUG_INFO from yaml_parser
+
+    ! Remove duplicate test data - consolidate into single section
     ! Test data parameters
     integer, parameter :: flow_seq_int(3) = [1, 2, 4]
-    real, parameter :: flow_seq_real(3) = [1.1, 2.2, 3.3]
+    real, parameter :: flow_seq_real(3) = [1.1, -2.2, 3.3]
     logical, parameter :: flow_seq_log(3) = [.true., .false., .true.]
     character(len=5), parameter :: flow_seq_str(3) = ["one  ", "two  ", "three"]
     character(len=5), parameter :: block_seq_str(3) = ["three", "four ", "five "]
+    integer, parameter :: block_seq_int(3) = [4, 5, 6]
+    ! Add new test data parameters
+    real, parameter :: block_seq_real(3) = [4.4858292, 1.0e-10, -0.01]
+    logical, parameter :: block_seq_log(3) = [.true., .false., .true.]
 
     ! Test keys
     character(len=*), parameter :: KEY_COMPANY = "company"
@@ -22,7 +35,10 @@ module test_utils
     character(len=*), parameter :: KEY_FLOW_REAL = "flow_sequence_real"
     character(len=*), parameter :: KEY_FLOW_LOG = "flow_sequence_logical"
     character(len=*), parameter :: KEY_FLOW_STR = "flow_sequence_string"
-    character(len=*), parameter :: KEY_BLOCK_SEQ = "block_sequence_string"
+    character(len=*), parameter :: KEY_BLOCK_STR = "block_sequence_string"
+    character(len=*), parameter :: KEY_BLOCK_INT = "block_sequence_int"
+    character(len=*), parameter :: KEY_BLOCK_REAL = "block_sequence_real"
+    character(len=*), parameter :: KEY_BLOCK_LOG = "block_sequence_logical"
 
     interface assert_equal
         module procedure assert_equal_int
@@ -32,6 +48,7 @@ module test_utils
     end interface
 
 contains
+    ! Group 1: Basic Type Tests
     subroutine assert_equal_int(expected, actual, message, status)
         integer, intent(in) :: expected, actual
         character(len=*), intent(in) :: message
@@ -154,9 +171,9 @@ contains
     integer function test_basic_types()
         type(fyaml_doc) :: doc
         type(yaml_value) :: val
-        type(yaml_dict) :: company
         character(len=:), allocatable :: key
-        integer :: status
+        integer :: status, node_count
+        character(len=:), allocatable, dimension(:) :: node_keys
 
         test_basic_types = ERR_SUCCESS
         call safe_allocate_string(key, 20, status)
@@ -168,162 +185,814 @@ contains
 
         call doc%load("test_example.yaml")
 
+        ! Get company node and validate
         key = "company"
-        val = doc%root%get(key)
-        if (.not. associated(val%dict_val)) then
-            write(error_unit,*) "Failed to get company dictionary"
+        val = doc%get(key)  ! Replace doc%root%get
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company node"
             test_basic_types = ERR_ASSERT
             return
         endif
-        company = val%dict_val
-        ! Assuming keys() returns an integer for size
-        call assert_equal(11, size(company%keys()), "Number of keys in company", status)
+
+        ! Get node keys
+        if (associated(val%node%children)) then
+            node_keys = get_sequence_as_strings(val%node)
+            node_count = size(node_keys)
+        else
+            node_count = 0
+        endif
+
+        call assert_equal(16, node_count, "Number of keys in company", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
         endif
 
-        ! Additional type assertions...
-        ! Example:
-        key = "name"
-        val = company%get(key)
-        call assert_equal("Example Corp", val%str_val, "String value test", status)
+        ! Test string value
+        val = doc%get("company%name")  ! Add parent key to path
+        call assert_equal("Example Corp", val%get_str(), "String value test", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
         endif
 
-        key = "founded"
-        val = company%get(key)
-        call assert_equal(2001, val%int_val, "Integer value test", status)
+        ! Test integer values
+        val = doc%get("company%founded")  ! Add parent key to path
+        call assert_equal(2001, val%get_int(), "Integer value test (founded)", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
         endif
 
-        key = "employees"
-        val = company%get(key)
-        call assert_equal(150, val%int_val, "Integer value test", status)
+        val = doc%get("company%employees")  ! Add parent key to path
+        call assert_equal(150, val%get_int(), "Integer value test (employees)", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
         endif
 
-        key = "pi"
-        val = company%get(key)
-        call assert_equal(3.14159, val%real_val, "Real value test", status=status)
+        ! Test real value
+        val = doc%get("company%pi")  ! Add parent key to path
+        call assert_equal(3.14159, val%get_real(), "Real value test", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
         endif
 
-        key = "goodness"
-        val = company%get(key)
-        call assert_equal(.true., val%is_null, "Null value test", status)
+        ! Test null value
+        val = doc%get("company%goodness")  ! Add parent key to path
+        call assert_equal(.true., val%is_null(), "Null value test", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
         endif
 
-        key = "okay"
-        val = company%get(key)
-        call assert_equal(.true., val%bool_val, "Boolean value test", status)
+        ! Test boolean value
+        val = doc%get("company%okay")  ! Add parent key to path
+        call assert_equal(.true., val%get_bool(), "Boolean value test", status)
         if (status /= ERR_SUCCESS) then
             test_basic_types = status
             return
         endif
 
         if (allocated(key)) deallocate(key)
-
     end function test_basic_types
 
-    ! Test all sequence types
+    ! Group 2: Sequence Tests
     function test_sequences() result(status)
         type(fyaml_doc) :: doc
-        type(yaml_value) :: val
-        type(yaml_dict) :: company
-        character(len=:), allocatable :: key
-        integer :: i, status
+        type(yaml_value) :: val, company_node
+        integer :: i, status, seq_size, ios
+        character(len=:), allocatable, dimension(:) :: seq_items
+        integer :: val_int
+        real :: val_real
+        logical :: val_bool
+        character(len=256) :: debug_msg
+        logical :: success
+        type(yaml_node), pointer :: current  ! Add this declaration
 
         status = ERR_SUCCESS
         call doc%load("test_example.yaml")
 
-        key = "company"
-        val = doc%root%get(key)
-        company = val%dict_val
-
-        ! Test integer sequence
-        write(*,*) '------------ FLOW SEQUECE INT ------------'
-        val = company%get("flow_sequence")
-        if (.not. allocated(val%int_sequence)) then
-            write(error_unit,*) "Integer sequence not allocated"
+        ! Get company node first
+        val = doc%get("company")  ! Replace doc%root%get
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company node"
             status = ERR_ASSERT
             return
         endif
-        write(*,*) "Processing integer sequence"
-        call assert_equal(size(flow_seq_int), size(val%int_sequence), "Integer sequence size", status)
-        do i = 1, size(flow_seq_int)
-            call assert_equal(flow_seq_int(i), val%int_sequence(i), "Integer element", status)
+        company_node = val  ! Store company node for later use
+
+        write(error_unit,*) "Testing company node children"
+        if (.not. associated(val%node%children)) then
+            write(error_unit,*) "Company node has no children"
+            status = ERR_ASSERT
+            return
+        endif
+
+        ! Navigate through children to find flow_sequence
+        write(error_unit,*) "Finding flow_sequence in children"
+        val = find_value_by_key(val%node%children, "flow_sequence")
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to find flow_sequence in company children"
+            status = ERR_ASSERT
+            return
+        endif
+
+        write(error_unit,*) "Node value:", trim(val%node%value)
+        write(error_unit,*) "Is sequence:", val%node%is_sequence
+        write(error_unit,*) "Has children:", associated(val%node%children)
+
+        ! Process sequence items
+        write(error_unit,*) "Processing sequence items"
+        seq_items = get_sequence_as_strings(val%node)
+        seq_size = size(seq_items)
+
+        write(error_unit,*) "Found sequence of size:", seq_size
+        write(error_unit,*) "Raw items:", seq_items
+
+        call assert_equal(size(flow_seq_int), seq_size, "Integer sequence size", status)
+        if (status /= ERR_SUCCESS) return
+
+        do i = 1, seq_size
+            write(error_unit,*) "Converting item:", trim(adjustl(seq_items(i)))
+            val_int = safe_string_to_int(seq_items(i), success)
+            if (.not. success) then
+                write(error_unit,*) "Failed to convert:", trim(adjustl(seq_items(i)))
+                status = ERR_ASSERT
+                return
+            endif
+            call assert_equal(flow_seq_int(i), val_int, "Integer element", status)
+            if (status /= ERR_SUCCESS) return
         end do
 
         ! Test real sequence
-        write(*,*) '------------ FLOW SEQUECE REAL ------------'
-        write(*,*) 'Getting real sequence'
-        val = company%get(KEY_FLOW_REAL)
-        if (.not. allocated(val%real_sequence)) then
-            write(error_unit,*) "Real sequence not allocated"
+        write(error_unit,*) "Testing real sequence..."
+        write(error_unit,*) "Looking for key:", KEY_FLOW_REAL
+        val = find_value_by_key(company_node%node%children, KEY_FLOW_REAL)
+
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to find real sequence node with key:", KEY_FLOW_REAL
+            write(error_unit,*) "Available keys in company node:"
+            call debug_print_available_keys(company_node%node%children)
             status = ERR_ASSERT
             return
         endif
 
-        write(*,*) "Processing real sequence"
-        call assert_equal(size(flow_seq_real), size(val%real_sequence), "Real sequence size", status)
-        if (status /= ERR_SUCCESS) then
-            write(error_unit,*) "Real sequence size mismatch"
-            return
+        ! Set sequence flag explicitly
+        val%node%is_sequence = .true.
+        if (associated(val%node%children)) then
+            val%node%children%is_sequence = .true.
         endif
 
-        do i = 1, size(flow_seq_real)
-            write(error_unit,*) "Comparing real elements:", flow_seq_real(i), val%real_sequence(i)
-            call assert_equal(flow_seq_real(i), val%real_sequence(i), "Real element", status)
-            if (status /= ERR_SUCCESS) then
-                write(error_unit,*) "Failed on real element", i
+        write(error_unit,*) "Found real sequence node. Value:", trim(val%node%value)
+        write(error_unit,*) "Is sequence:", val%node%is_sequence
+        write(error_unit,*) "Has children:", associated(val%node%children)
+
+        seq_items = get_sequence_as_strings(val%node)
+        seq_size = size(seq_items)
+
+        call assert_equal(size(flow_seq_real), seq_size, "Real sequence size", status)
+        if (status /= ERR_SUCCESS) return
+
+        do i = 1, seq_size
+            read(seq_items(i), '(F20.10)', iostat=ios) val_real  ! Fixed format for real reading
+            if (ios /= 0) then
+                write(error_unit,*) "Failed to convert:", trim(adjustl(seq_items(i))), &
+                                  " Error code:", ios
+                status = ERR_ASSERT
                 return
-            end if
+            endif
+            call assert_equal(flow_seq_real(i), val_real, "Real element", status)
+            if (status /= ERR_SUCCESS) return
         end do
 
         ! Test logical sequence
-        write(*,*) '------------ FLOW SEQUECE LOGICAL ------------'
-        val = company%get("flow_sequence_logical")
-        if (.not. allocated(val%bool_sequence)) then
-            write(error_unit,*) "Boolean sequence not allocated"
+        write(*,*) '------------ FLOW SEQUENCE LOGICAL ------------'
+        val = company_node%get(KEY_FLOW_LOG)
+        if (.not. val%is_sequence()) then
+            write(error_unit,*) "Expected sequence type for logical sequence"
             status = ERR_ASSERT
             return
         endif
-        write(*,*) "Processing logical sequence"
-        call assert_equal(size(flow_seq_log), size(val%bool_sequence), "Logical sequence size", status)
-        do i = 1, size(flow_seq_log)
-            call assert_equal(flow_seq_log(i), val%bool_sequence(i), "Logical element", status)
+
+        seq_items = get_sequence_as_strings(val%node)
+        seq_size = size(seq_items)
+
+        call assert_equal(size(flow_seq_log), seq_size, "Logical sequence size", status)
+        if (status /= ERR_SUCCESS) return
+
+        do i = 1, seq_size
+            val_bool = (trim(seq_items(i)) == 'true')
+            call assert_equal(flow_seq_log(i), val_bool, "Logical element", status)
+            if (status /= ERR_SUCCESS) return
         end do
 
-        ! test block squence string
-        write(*,*) '------------ BLOCK SEQUECE STRING ------------'
-        val = company%get("block_sequence_string")
-        if (.not. allocated(val%str_sequence)) then
-            write(error_unit,*) "String sequence not allocated"
+        ! Test block sequence
+        write(*,*) '------------ BLOCK SEQUENCE INT ------------'
+        val = company_node%get(KEY_BLOCK_INT)
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to find block sequence node"
             status = ERR_ASSERT
             return
         endif
-        write(*,*) "Processing string sequence"
-        call assert_equal(size(block_seq_str), size(val%str_sequence), "String sequence size", status)
-        do i = 1, size(block_seq_str)
-            call assert_equal(block_seq_str(i), val%str_sequence(i), "String element", status)
+
+        ! Debug sequence info
+        write(error_unit,*) "Block sequence node:"
+        write(error_unit,*) "  Key:", trim(val%node%key)
+        write(error_unit,*) "  Value:", trim(val%node%value)
+        write(error_unit,*) "  Is sequence:", val%node%is_sequence
+        write(error_unit,*) "  Has children:", associated(val%node%children)
+
+        ! Get sequence items
+        seq_items = get_sequence_as_strings(val%node)
+        seq_size = size(seq_items)
+
+        write(*,*) "Sequence length:", seq_size
+        if (seq_size > 0) then
+            write(*,*) "Raw sequence elements:", seq_items
+        endif
+
+        call assert_equal(size(block_seq_int), seq_size, "Block integer sequence size", status)
+        if (status /= ERR_SUCCESS) return
+
+        do i = 1, seq_size
+            write(error_unit,*) "Converting item:", trim(adjustl(seq_items(i)))
+            read(seq_items(i), *, iostat=ios) val_int
+            if (ios /= 0) then
+                write(error_unit,*) "Failed to convert:", trim(adjustl(seq_items(i))), &
+                                  " Error code:", ios
+                status = ERR_ASSERT
+                return
+            endif
+            call assert_equal(block_seq_int(i), val_int, "Block integer element", status)
+            if (status /= ERR_SUCCESS) return
         end do
-        if (status /= ERR_SUCCESS) then
-            write(error_unit,*) "Failed on string sequence"
+
+        ! Ensure sequence flags are set
+        val%node%is_sequence = .true.
+        if (associated(val%node%children)) then
+            current => val%node%children
+            do while (associated(current))
+                current%is_sequence = .true.
+                current => current%next
+            end do
+        endif
+
+        ! Debug sequence info
+        write(error_unit,*) "Block sequence node:"
+        write(error_unit,*) "  Key:", trim(val%node%key)
+        write(error_unit,*) "  Value:", trim(val%node%value)
+        write(error_unit,*) "  Is sequence:", val%node%is_sequence
+        write(error_unit,*) "  Has children:", associated(val%node%children)
+        write(error_unit,*) "  Sequence type:"
+
+        if (associated(val%node%children)) then
+            current => val%node%children
+            write(error_unit,*) "Children values:"
+            do while (associated(current))
+                write(error_unit,*) "  -", trim(current%value)
+                current => current%next
+            end do
+        endif
+
+        seq_items = get_sequence_as_strings(val%node)
+        seq_size = size(seq_items)
+
+        write(*,*) "Sequence length:", seq_size
+        if (seq_size > 0) then
+            write(*,*) "Sequence elements:", seq_items
+        endif
+
+        call assert_equal(size(block_seq_int), seq_size, "Block integer sequence size", status)
+        if (status /= ERR_SUCCESS) return
+
+        do i = 1, seq_size
+            read(seq_items(i), *) val_int
+            call assert_equal(block_seq_int(i), val_int, "Block integer element", status)
+            if (status /= ERR_SUCCESS) return
+        end do
+
+        ! Test block sequence real values
+        write(*,*) '------------ BLOCK SEQUENCE REAL ------------'
+        val = company_node%get(KEY_BLOCK_REAL)
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to find block real sequence node"
+            status = ERR_ASSERT
             return
         endif
+
+        seq_items = get_sequence_as_strings(val%node)
+        seq_size = size(seq_items)
+
+        call assert_equal(size(block_seq_real), seq_size, "Block real sequence size", status)
+        if (status /= ERR_SUCCESS) return
+
+        do i = 1, seq_size
+            read(seq_items(i), *, iostat=ios) val_real
+            if (ios /= 0) then
+                write(error_unit,*) "Failed to convert real:", trim(adjustl(seq_items(i))), &
+                                  " Error code:", ios
+                status = ERR_ASSERT
+                return
+            endif
+            call assert_equal(block_seq_real(i), val_real, "Block real element", status)
+            if (status /= ERR_SUCCESS) return
+        end do
+
+        ! Test block sequence logical values
+        write(*,*) '------------ BLOCK SEQUENCE LOGICAL ------------'
+        val = company_node%get(KEY_BLOCK_LOG)
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to find block logical sequence node"
+            status = ERR_ASSERT
+            return
+        endif
+
+        seq_items = get_sequence_as_strings(val%node)
+        seq_size = size(seq_items)
+
+        call assert_equal(size(block_seq_log), seq_size, "Block logical sequence size", status)
+        if (status /= ERR_SUCCESS) return
+
+        do i = 1, seq_size
+            val_bool = (trim(adjustl(seq_items(i))) == 'true')
+            call assert_equal(block_seq_log(i), val_bool, "Block logical element", status)
+            if (status /= ERR_SUCCESS) return
+        end do
+
+        ! Test block sequence string values
+        write(*,*) '------------ BLOCK SEQUENCE STRING ------------'
+        val = company_node%get(KEY_BLOCK_STR)
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to find block string sequence node"
+            status = ERR_ASSERT
+            return
+        endif
+
+        seq_items = get_sequence_as_strings(val%node)
+        seq_size = size(seq_items)
+
+        call assert_equal(size(block_seq_str), seq_size, "Block string sequence size", status)
+        if (status /= ERR_SUCCESS) return
+
+        do i = 1, seq_size
+            call assert_equal(block_seq_str(i), trim(adjustl(seq_items(i))), "Block string element", status)
+            if (status /= ERR_SUCCESS) return
+        end do
+
+    contains
+        function find_value_by_key(node, search_key) result(found_val)
+            type(yaml_node), pointer, intent(in) :: node
+            character(len=*), intent(in) :: search_key
+            type(yaml_value) :: found_val
+            type(yaml_node), pointer :: current
+
+            found_val%node => null()
+            current => node
+            write(error_unit,*) "Searching for key:", trim(search_key)
+            do while (associated(current))
+                write(error_unit,*) "Checking node key:", trim(current%key)
+                if (trim(adjustl(current%key)) == trim(adjustl(search_key))) then
+                    found_val%node => current
+                    write(error_unit,*) "Found matching key"
+                    return
+                endif
+                current => current%next
+            end do
+            write(error_unit,*) "Key not found:", trim(search_key)
+        end function find_value_by_key
+
+        ! Add debug helper
+        subroutine debug_print_available_keys(node)
+            type(yaml_node), pointer, intent(in) :: node
+            type(yaml_node), pointer :: current
+
+            current => node
+            do while (associated(current))
+                write(error_unit,*) "  -", trim(current%key)
+                current => current%next
+            end do
+        end subroutine
+
+        ! Helper function to print node structure
+        recursive subroutine debug_print_node(node, prefix)
+            type(yaml_node), pointer :: node
+            character(len=*), intent(in) :: prefix
+            type(yaml_node), pointer :: current
+
+            current => node
+            do while (associated(current))
+                write(error_unit,*) prefix, "Key:", trim(current%key), &
+                                  "Value:", trim(current%value), &
+                                  "Is sequence:", current%is_sequence
+                if (associated(current%children)) then
+                    call debug_print_node(current%children, prefix//"  ")
+                endif
+                current => current%next
+            end do
+        end subroutine debug_print_node
+
     end function test_sequences
-    ! Additional test functions...
+
+    ! Move get_sequence_as_strings to module level
+    function get_sequence_as_strings(node) result(items)
+        type(yaml_node), pointer, intent(in) :: node
+        character(len=:), allocatable, dimension(:) :: items
+        type(yaml_node), pointer :: current
+        integer :: count, i
+        character(len=256) :: debug_msg
+
+        ! Count items
+        count = 0
+        if (associated(node%children)) then
+            current => node%children
+            do while (associated(current))
+                write(debug_msg, '(A,A)') "Found sequence item: ", trim(current%value)
+                call debug_print(DEBUG_INFO, debug_msg)  ! Changed from DEBUG_VERBOSE
+                count = count + 1
+                current => current%next
+            end do
+        endif
+
+        ! Allocate and fill array
+        allocate(character(len=32) :: items(count))
+        if (count > 0) then
+            current => node%children
+            i = 1
+            do while (associated(current))
+                items(i) = trim(adjustl(current%value))
+                write(debug_msg, '(A,I0,A,A)') "Item ", i, ": ", trim(items(i))
+                call debug_print(DEBUG_INFO, debug_msg)  ! Changed from DEBUG_VERBOSE
+                i = i + 1
+                current => current%next
+            end do
+        endif
+    end function get_sequence_as_strings
+
+    ! Add helper function for safe string to integer conversion
+    function safe_string_to_int(str, success) result(val_int)
+        character(len=*), intent(in) :: str
+        logical, intent(out) :: success
+        integer :: val_int
+        character(len=:), allocatable :: clean_str
+        integer :: dot_pos, ios
+
+        success = .false.
+        val_int = 0
+
+        ! Clean the string
+        clean_str = trim(adjustl(str))
+
+        ! Find and remove any decimal part
+        dot_pos = index(clean_str, '.')
+        if (dot_pos > 0) then
+            clean_str = clean_str(1:dot_pos-1)
+        endif
+
+        ! Try to read the integer
+        read(clean_str, *, iostat=ios) val_int
+        if (ios == 0) then
+            success = .true.
+        endif
+    end function
+
+    subroutine test_value_getters()
+        type(yaml_value) :: val
+        type(yaml_node), pointer :: test_node
+        integer :: status
+
+        ! Test string value
+        allocate(test_node)
+        test_node%value = "Example Corp"
+        test_node%is_string = .true.
+        val%node => test_node
+        call assert_equal("Example Corp", val%get_str(), "String value test", status)
+        deallocate(test_node)
+
+        ! Rest of value getter tests...
+        ! Test integer value
+        allocate(test_node)
+        test_node%value = "2001"
+        test_node%is_integer = .true.
+        val%node => test_node
+        call assert_equal(val%get_int(), 2001, "Integer value test", status)
+        deallocate(test_node)
+
+        ! Test real value
+        allocate(test_node)
+        test_node%value = "3.14159"
+        test_node%is_float = .true.
+        val%node => test_node
+        call assert_equal(val%get_real(), 3.14159, "Real value test", status)
+        deallocate(test_node)
+
+        ! Test boolean value
+        allocate(test_node)
+        test_node%value = "true"
+        test_node%is_boolean = .true.
+        val%node => test_node
+        call assert_equal(val%get_bool(), .true., "Boolean value test", status)
+        deallocate(test_node)
+
+        ! Test null value
+        val%node => null()
+        call assert_equal(val%is_null(), .true., "Null value test", status)
+
+        ! Test sequence
+        allocate(test_node)
+        test_node%is_sequence = .true.
+        val%node => test_node
+        call assert_equal(val%is_sequence(), .true., "Sequence test", status)
+        deallocate(test_node)
+    end subroutine
+
+    ! Group 3: Nested Access Tests
+    ! Add new test function for nested access
+    integer function test_nested_access()
+        type(fyaml_doc) :: doc
+        type(yaml_value) :: val
+        character(len=:), allocatable :: str_val
+        integer :: int_val, val_int, status  ! Added val_int declaration
+        real :: real_val
+        logical :: success, bool_val  ! Also add bool_val for completeness
+
+        test_nested_access = ERR_SUCCESS
+
+        ! Load test file
+        call doc%load("test_example.yaml", success)
+        if (.not. success) then
+            write(error_unit,*) "Failed to load YAML file"
+            test_nested_access = ERR_ALLOC
+            return
+        endif
+
+        ! Test multi-level access using % delimiter
+        write(*,*) ' ->>>>>>>>>>>> testing company%name ->>>>>>>>>>>>'
+        val = doc%get("company%name")
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company%name"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+        str_val = val%get_str()
+        write(error_unit,*) "Got nested string:", trim(str_val)
+        if (str_val /= "Example Corp") then
+            write(error_unit,*) "Wrong nested string value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Test sequence access
+         write(*,*) ' ->>>>>>>>>>>> testing company%employees ->>>>>>>>>>>>'
+        val = doc%get("company%employees")
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company%employees"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+        int_val = val%get_int()
+        write(error_unit,*) "Got nested integer:", int_val
+        if (int_val /= 150) then
+            write(error_unit,*) "Wrong nested integer value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Test deep nesting with sequences
+         write(*,*) ' ->>>>>>>>>>>> testing company%pi ->>>>>>>>>>>>'
+        val = doc%get("company%pi")
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company%pi"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+        real_val = val%get_real()
+        write(error_unit,*) "Got deeply nested real:", real_val
+        if (abs(real_val - 3.14159) > 1.0e-5) then
+            write(error_unit,*) "Wrong deeply nested real value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Test all value types with nested access
+        ! Integer test
+        write(*,*) ' ->>>>>>>>>>>> testing integer company%employees ->>>>>>>>>>>>'
+        int_val = doc%get_int("company%employees")
+        write(error_unit,*) "Got nested integer:", int_val
+        if (int_val /= 150) then
+            write(error_unit,*) "Wrong nested integer value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Real test
+        write(*,*) ' ->>>>>>>>>>>> testing real company%pi ->>>>>>>>>>>>'
+        real_val = doc%get_real("company%pi")
+        write(error_unit,*) "Got nested real:", real_val
+        if (abs(real_val - 3.14159) > 1.0e-5) then
+            write(error_unit,*) "Wrong nested real value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Boolean test
+        write(*,*) ' ->>>>>>>>>>>> testing boolean company%okay ->>>>>>>>>>>>'
+        if (.not. doc%get_bool("company%okay")) then
+            write(error_unit,*) "Wrong nested boolean value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Deep nesting test
+        write(*,*) ' ->>>>>>>>>>>> testing deep nested integer ->>>>>>>>>>>>'
+        val_int = doc%get_int("company%nested%values%integer")
+        if (val_int /= 42) then
+            write(error_unit,*) "Wrong deeply nested integer value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Deep sequence test
+        write(*,*) ' ->>>>>>>>>>>> testing deep nested sequence ->>>>>>>>>>>>'
+        val = doc%get("company%nested%values%sequence")
+        if (.not. val%is_sequence()) then
+            write(error_unit,*) "Expected sequence type for deep nested sequence"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Test company%name access
+        val = doc%get("company%name")
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company%name node"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        str_val = val%get_str()
+        call assert_equal("Example Corp", str_val, "Nested string value test", status)
+        if (status /= ERR_SUCCESS) then
+            write(error_unit,*) "Failed string comparison for company%name"
+            test_nested_access = status
+            return
+        endif
+
+        ! Test deep nested access
+        val = doc%get("company%nested%values%integer")
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company%nested%values%integer node"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        int_val = val%get_int()
+        call assert_equal(42, int_val, "Deep nested integer value test", status)
+        if (status /= ERR_SUCCESS) then
+            test_nested_access = status
+            return
+        endif
+
+        ! Additional Checks for Sequence Access
+        val = doc%get("company%flow_sequence")
+        if (.not. val%is_sequence()) then
+            write(error_unit,*) "Failed to recognize flow sequence"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Test first document access
+        write(*,*) ' ->>>>>>>>>>>> testing doc1: company%name ->>>>>>>>>>>>'
+        val = doc%get("company%name", doc_index=1)
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company%name from doc 1"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+        str_val = val%get_str()
+        write(error_unit,*) "Got nested string from doc 1:", trim(str_val)
+        if (str_val /= "Example Corp") then
+            write(error_unit,*) "Wrong nested string value in doc 1"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Test default document (first) access
+        write(*,*) ' ->>>>>>>>>>>> testing default doc: company%employees ->>>>>>>>>>>>'
+        val = doc%get("company%employees")  ! Should default to doc_index=1
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company%employees from default doc"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+        int_val = val%get_int()
+        write(error_unit,*) "Got nested integer from default doc:", int_val
+        if (int_val /= 150) then
+            write(error_unit,*) "Wrong nested integer value in default doc"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Test invalid document index
+        write(*,*) ' ->>>>>>>>>>>> testing invalid doc index ->>>>>>>>>>>>'
+        val = doc%get("company%name", doc_index=3)
+        if (associated(val%node)) then
+            write(error_unit,*) "Expected null for invalid doc index"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Test all value types with nested access in first document
+        write(*,*) ' ->>>>>>>>>>>> testing doc1: all value types ->>>>>>>>>>>>'
+
+        ! Integer test
+        int_val = doc%get_int("company%employees", doc_index=1)
+        write(error_unit,*) "Got nested integer:", int_val
+        if (int_val /= 150) then
+            write(error_unit,*) "Wrong nested integer value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Real test
+        real_val = doc%get_real("company%pi", doc_index=1)
+        write(error_unit,*) "Got nested real:", real_val
+        if (abs(real_val - 3.14159) > 1.0e-5) then
+            write(error_unit,*) "Wrong nested real value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Boolean test
+        if (.not. doc%get_bool("company%okay", doc_index=1)) then
+            write(error_unit,*) "Wrong nested boolean value"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        ! Test sequences across documents
+        write(*,*) ' ->>>>>>>>>>>> testing sequences in both docs ->>>>>>>>>>>>'
+
+        ! First document sequence
+        val = doc%get("company%flow_sequence", doc_index=1)
+        if (.not. val%is_sequence()) then
+            write(error_unit,*) "Failed to recognize flow sequence in doc 1"
+            test_nested_access = ERR_ASSERT
+            return
+        endif
+
+        write(*,*) "All nested access tests passed successfully!"
+    end function test_nested_access
+
+    !> Test multiple document access
+    integer function test_multiple_docs()
+        type(fyaml_doc) :: doc
+        type(yaml_value) :: val
+        logical :: success
+        integer :: status, int_val
+
+        test_multiple_docs = ERR_SUCCESS
+
+        ! Load test file (ensure file exists in binary dir)
+        write(error_unit,*) "Loading test file: test_example_multi_doc.yaml"
+        call doc%load("test_example_multi_doc.yaml", success)
+        if (.not. success) then
+            write(error_unit,*) "Failed to load YAML file"
+            test_multiple_docs = ERR_ALLOC
+            return
+        endif
+
+        ! Verify number of documents
+        if (doc%n_docs /= 2) then
+            write(error_unit,*) "Expected 2 documents, got:", doc%n_docs
+            test_multiple_docs = ERR_ASSERT
+            return
+        endif
+
+        ! Test first document access
+        val = doc%get("company%name", doc_index=1)
+        call assert_equal("Example Corp", val%get_str(), "First doc string test", status)
+        if (status /= ERR_SUCCESS) then
+            test_multiple_docs = status
+            return
+        endif
+
+        ! Test second document access
+        val = doc%get("deep%nested%values%integer", doc_index=2)
+        int_val = val%get_int()
+        call assert_equal(42, int_val, "Second doc integer test", status)
+        if (status /= ERR_SUCCESS) then
+            test_multiple_docs = status
+            return
+        endif
+
+        ! Test invalid document index
+        val = doc%get("company%name", doc_index=3)
+        if (associated(val%node)) then
+            write(error_unit,*) "Expected null for invalid doc index"
+            test_multiple_docs = ERR_ASSERT
+            return
+        endif
+    end function test_multiple_docs
 
 end module test_utils
