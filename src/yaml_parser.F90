@@ -1578,17 +1578,30 @@ end subroutine parse_mapping
     character(len=256) :: debug_msg
     logical :: has_valid_parent
 
-    ! Initialize all pointers
+    ! Initialize all pointers to null
     nullify(parent)
     nullify(best_parent)
     nullify(last_valid_parent)
+    nullify(current)
+
+    ! Initialize other variables
     max_stack_size = 1000
     parent_level_indent = child_indent - indent_width
     best_indent = -1
     has_valid_parent = .false.
 
-    ! Allocate stack
-    allocate(node_stack(max_stack_size))
+    ! Early exit if root is not associated
+    if (.not. associated(root)) then
+        call debug_print(DEBUG_INFO, "Empty root node")
+        return
+    endif
+
+    ! Allocate stack with error checking
+    allocate(node_stack(max_stack_size), stat=stack_top)
+    if (stack_top /= 0) then
+        call debug_print(DEBUG_ERROR, "Failed to allocate node stack")
+        return
+    endif
     stack_top = 0
 
     write(debug_msg, '(A,I0,A,I0,A,I0)') &
@@ -1597,27 +1610,23 @@ end subroutine parse_mapping
         " at line ", line_num
     call debug_print(DEBUG_INFO, debug_msg)
 
-    ! Handle root case
-    if (.not. associated(root)) then
-        call debug_print(DEBUG_INFO, "Empty root node")
-        deallocate(node_stack)
-        return
-    endif
-
     ! Special case: if child_indent is 2 and root has indent 0, return root
     if (child_indent == 2 .and. root%indent == 0) then
         parent => root
         write(debug_msg, '(A,A)') "Selected root as parent: ", trim(root%key)
         call debug_print(DEBUG_INFO, debug_msg)
-        deallocate(node_stack)
+        if (allocated(node_stack)) deallocate(node_stack)
         return
     endif
 
-    ! Start with root node
+    ! Start traversal with root node
     current => root
 
-    ! Traverse tree looking for valid parents
+    ! Main traversal loop with defensive programming
     do while (associated(current))
+        ! Safety check for corrupted pointers
+        if (.not. associated(current)) exit
+
         if (len_trim(current%key) > 0) then
             write(debug_msg, '(A,A,A,I0,A,I0)') &
                 "Checking node '", trim(adjustl(current%key)), &
@@ -1625,11 +1634,10 @@ end subroutine parse_mapping
                 " at line ", current%line_num
             call debug_print(DEBUG_INFO, debug_msg)
 
-            ! Only consider nodes that appear before the current line
+            ! Check nodes before current line
             if (current%line_num < line_num) then
-                ! Check if this node could be a valid parent based on indentation
-                if (current%indent <= parent_level_indent) then
-                    ! Update last valid parent if this is more recent or at a better indent level
+                ! Valid parent check with defensive bounds
+                if (current%indent >= 0 .and. current%indent <= parent_level_indent) then
                     if (.not. has_valid_parent) then
                         last_valid_parent => current
                         has_valid_parent = .true.
@@ -1639,6 +1647,7 @@ end subroutine parse_mapping
                             " line ", current%line_num
                         call debug_print(DEBUG_INFO, debug_msg)
                     else if (associated(last_valid_parent)) then
+                        ! Safe comparison of indent levels
                         if (current%indent > last_valid_parent%indent .or. &
                             (current%indent == last_valid_parent%indent .and. &
                              current%line_num > last_valid_parent%line_num)) then
@@ -1651,10 +1660,10 @@ end subroutine parse_mapping
                         endif
                     endif
 
-                    ! Check for exact indent match
+                    ! Exact indent match with safety check
                     if (current%indent == parent_level_indent) then
                         if (.not. associated(best_parent) .or. &
-                            current%line_num > best_parent%line_num) then
+                            (associated(best_parent) .and. current%line_num > best_parent%line_num)) then
                             best_parent => current
                             write(debug_msg, '(A,A,A,I0,A,I0)') &
                                 "Found exact indent match: ", trim(adjustl(current%key)), &
@@ -1667,32 +1676,45 @@ end subroutine parse_mapping
             endif
         endif
 
-        ! Try children first
+        ! Tree traversal with safety checks
         if (associated(current%children)) then
             if (stack_top < max_stack_size) then
                 stack_top = stack_top + 1
-                node_stack(stack_top)%node => current%next
+                if (associated(current%next)) then
+                    node_stack(stack_top)%node => current%next
+                else
+                    nullify(node_stack(stack_top)%node)
+                endif
                 current => current%children
                 cycle
             endif
         endif
 
-        ! Then try siblings
+        ! Check next sibling with safety
         if (associated(current%next)) then
             current => current%next
             cycle
         endif
 
-        ! Pop from stack if no more paths
-        if (stack_top > 0) then
-            current => node_stack(stack_top)%node
+        ! Safe stack pop
+        do while (stack_top > 0)
+            if (associated(node_stack(stack_top)%node)) then
+                current => node_stack(stack_top)%node
+                stack_top = stack_top - 1
+                exit
+            endif
             stack_top = stack_top - 1
-        else
-            exit
-        endif
+            if (stack_top == 0) then
+                nullify(current)
+                exit
+            endif
+        end do
+
+        ! Exit if no more nodes to process
+        if (stack_top == 0 .and. .not. associated(current)) exit
     end do
 
-    ! Select final parent - prefer exact indent match, fall back to last valid parent
+    ! Select final parent with safety checks
     if (associated(best_parent)) then
         parent => best_parent
         write(debug_msg, '(A,A,A,I0,A,I0)') &
@@ -1708,10 +1730,13 @@ end subroutine parse_mapping
     else
         write(debug_msg, '(A,I0)') &
             "No suitable parent found for line ", line_num
+        nullify(parent)
     endif
 
     call debug_print(DEBUG_INFO, debug_msg)
-    deallocate(node_stack)
+
+    ! Clean up
+    if (allocated(node_stack)) deallocate(node_stack)
 
   end function find_parent_by_indent
 
