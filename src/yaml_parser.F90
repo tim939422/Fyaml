@@ -93,23 +93,28 @@ module yaml_parser
 
 contains
 
-  !> Set the debug output level
+  !> Set the debug output level for the YAML parser
   !!
-  !! Controls how much debug information is printed during parsing
-  !!
-  !! @param[in] level Debug level (DEBUG_NONE through DEBUG_VERBOSE)
+  !! @param[in] level Debug level (DEBUG_ERROR or DEBUG_INFO)
   subroutine set_debug_level(level)
     integer, intent(in) :: level
     debug_level = level
   end subroutine
 
-  !> Set the indentation width for parsing
+  !> Set the indentation width used for parsing YAML structure
+  !!
+  !! @param[in] width Number of spaces per indentation level
   subroutine set_indent_width(width)
     integer, intent(in) :: width
     if (width > 0) indent_width = width
   end subroutine
 
-  !> Debug message printer - modified to be more concise
+  !> Print debug messages with appropriate formatting and prefixes
+  !!
+  !! @param[in] level Debug level of the message
+  !! @param[in] message The debug message to print
+  !! @param[in] error_code Optional error code associated with the message
+  !! @param[in] msg_type Optional message type for prefix selection
   subroutine debug_print(level, message, error_code, msg_type)
     integer, intent(in) :: level
     character(len=*), intent(in) :: message
@@ -148,7 +153,11 @@ contains
     endif
   end subroutine
 
-  ! Add wrapper subroutine for parse_yaml
+  !> Wrapper subroutine for parsing YAML files
+  !!
+  !! @param[in] filename Name of the YAML file to parse
+  !! @param[out] docs Array of parsed YAML documents
+  !! @param[out] status Status code indicating success or error
   subroutine parse_yaml_wrapper(filename, docs, status)
     character(len=*), intent(in) :: filename
     type(yaml_document), allocatable, intent(out) :: docs(:)
@@ -174,7 +183,12 @@ contains
     call parse_yaml_internal(filename, docs, status)
   end subroutine
 
-  ! Add helper subroutine to count documents
+  !> Helper subroutine to count the number of YAML documents in a file
+  !!
+  !! @param[in] filename Name of the YAML file to count documents in
+  !! @param[out] size_out Number of documents found
+  !! @param[out] found_marker Logical flag indicating if document markers were found
+  !! @param[out] stat Status code indicating success or error
   subroutine count_documents(filename, size_out, found_marker, stat)
     character(len=*), intent(in) :: filename
     integer, intent(out) :: size_out
@@ -207,7 +221,11 @@ contains
     stat = ERR_SUCCESS
   end subroutine
 
-  ! Rename original parse_yaml to internal implementation
+  !> Internal subroutine for parsing YAML files
+  !!
+  !! @param[in] filename Name of the YAML file to parse
+  !! @param[out] docs Array of parsed YAML documents
+  !! @param[out] status Status code indicating success or error
   subroutine parse_yaml_internal(filename, docs, status)
     character(len=*), intent(in) :: filename
     type(yaml_document), allocatable, intent(out) :: docs(:)
@@ -403,6 +421,7 @@ end subroutine parse_yaml_internal
   !! @param[in]     line Input line
   !! @param[in,out] doc  Document being built
   !! @param[out]    status Status code
+  !! @param[in]     line_num Line number of the input line
   subroutine parse_line(line, doc, status, line_num)
     character(len=*), intent(in) :: line
     type(yaml_document), intent(inout) :: doc
@@ -680,7 +699,12 @@ end subroutine parse_yaml_internal
     end do
   end subroutine parse_line
 
-  ! Add new helper function to find or create intermediate nodes
+  !> Find or create intermediate nodes to match target indentation
+  !!
+  !! @param[inout] parent Parent node to start from
+  !! @param[in] target_indent Target indentation level
+  !! @param[in] new_node Node to link at target indentation
+  !! @return Last node created or found at target indentation
   function find_or_create_intermediate_nodes(parent, target_indent, new_node) result(last_node)
     type(yaml_node), pointer, intent(inout) :: parent
     integer, intent(in) :: target_indent
@@ -738,6 +762,11 @@ end subroutine parse_yaml_internal
   end function find_or_create_intermediate_nodes
 
   !> Handle block sequence items, ensuring they're properly linked and labeled
+  !!
+  !! @param[in] line Input line containing sequence item
+  !! @param[inout] doc Document being built
+  !! @param[inout] node Node representing the sequence item
+  !! @param[out] status Status code indicating success or error
   subroutine handle_block_sequence(line, doc, node, status)
     character(len=*), intent(in) :: line
     type(yaml_document), intent(inout) :: doc
@@ -774,6 +803,10 @@ end subroutine parse_yaml_internal
   end subroutine handle_block_sequence
 
   !> Find the last sequence item at a given indentation level
+  !!
+  !! @param[in] root Root node to start search from
+  !! @param[in] indent Indentation level to search for
+  !! @return Last sequence item found at the given indentation level
   function find_last_sequence_item(root, indent) result(last_item)
     type(yaml_node), pointer :: root, last_item
     integer, intent(in) :: indent
@@ -790,6 +823,10 @@ end subroutine parse_yaml_internal
   end function
 
   !> Check if node has a sequence parent at given indent
+  !!
+  !! @param[in] root Root node to start search from
+  !! @param[in] indent Indentation level to check for parent
+  !! @return True if a sequence parent is found at the given indent
   function has_sequence_parent(root, indent) result(has_parent)
     type(yaml_node), pointer :: root
     integer, intent(in) :: indent
@@ -809,6 +846,10 @@ end subroutine parse_yaml_internal
   end function
 
   !> Find the parent key for a sequence
+  !!
+  !! @param[in] root Root node to start search from
+  !! @param[in] indent Indentation level to search for parent key
+  !! @param[out] parent_key Key of the parent node found
   subroutine find_sequence_parent(root, indent, parent_key)
     type(yaml_node), pointer :: root
     integer, intent(in) :: indent
@@ -832,8 +873,8 @@ end subroutine parse_yaml_internal
   !!
   !! Handles flow-style sequences [...] and mappings {...}
   !!
-  !! @param[in]     line Input containing flow syntax
-  !! @param[in,out] node Node to store parsed content
+  !! @param[in] line Input containing flow syntax
+  !! @param[inout] node Node to store parsed content
   subroutine parse_flow_form(line, node)
       character(len=*), intent(in) :: line
       type(yaml_node), pointer, intent(inout) :: node
@@ -882,6 +923,9 @@ end subroutine parse_yaml_internal
   end subroutine parse_flow_form
 
   !> Add a new item to a sequence node
+  !!
+  !! @param[inout] parent Parent node representing the sequence
+  !! @param[in] value Value of the new sequence item
   subroutine add_sequence_item(parent, value)
       type(yaml_node), pointer, intent(inout) :: parent
       character(len=*), intent(in) :: value
@@ -918,8 +962,8 @@ end subroutine parse_yaml_internal
   !!
   !! Splits comma-separated key-value pairs into nodes
   !!
-  !! @param[in,out] content Mapping content string
-  !! @param[in,out] node Node to store mapping
+  !! @param[inout] content Mapping content string
+  !! @param[inout] node Node to store mapping
   subroutine parse_mapping(content, node)
     character(len=*), intent(inout) :: content
     type(yaml_node), pointer, intent(inout) :: node
@@ -1193,6 +1237,9 @@ end subroutine parse_mapping
   end function is_block_sequence
 
   !> Find the last non-sequence node (likely parent)
+  !!
+  !! @param[in] root Root node to start search from
+  !! @return Last non-sequence node found
   function find_last_nonsequence_node(root) result(last_node)
     type(yaml_node), pointer :: root, last_node
     type(yaml_node), pointer :: current
@@ -1208,6 +1255,10 @@ end subroutine parse_mapping
   end function
 
   !> Find parent node for block sequence item
+  !!
+  !! @param[in] root Root node to start search from
+  !! @param[in] item_node Node representing the sequence item
+  !! @return Parent node found for the sequence item
   function find_block_sequence_parent(root, item_node) result(parent)
     type(yaml_node), pointer :: root, parent, item_node
     character(len=256) :: debug_msg
@@ -1322,6 +1373,10 @@ end subroutine parse_mapping
   end function find_block_sequence_parent
 
   !> Detect indentation width from sequence structure
+  !!
+  !! @param[in] root Root node to start search from
+  !! @param[in] item_indent Indentation level of the item
+  !! @return Detected indentation width
   function detect_indent_width(root, item_indent) result(width)
     type(yaml_node), pointer, intent(in) :: root
     integer, intent(in) :: item_indent
@@ -1354,6 +1409,10 @@ end subroutine parse_mapping
   end function detect_indent_width
 
   !> Find parent node containing key for sequence
+  !!
+  !! @param[in] root Root node to start search from
+  !! @param[in] current Node representing the sequence item
+  !! @return Parent node found for the sequence item
   function find_sequence_parent_node(root, current) result(parent)
     type(yaml_node), pointer, intent(in) :: root, current
     type(yaml_node), pointer :: parent, temp
@@ -1418,7 +1477,11 @@ end subroutine parse_mapping
     endif
   end function find_sequence_parent_node
 
-  ! Modify debug_print_node_structure to be more concise
+  !> Print the structure of a YAML node and its children for debugging
+  !!
+  !! @param[in] node Node to print
+  !! @param[in] prefix Prefix string for indentation
+  !! @param[in] max_depth Optional maximum depth to print
   recursive subroutine debug_print_node_structure(node, prefix, max_depth)
     type(yaml_node), pointer, intent(in) :: node
     character(len=*), intent(in) :: prefix
@@ -1449,7 +1512,11 @@ end subroutine parse_mapping
     end do
   end subroutine debug_print_node_structure
 
-  ! Update find_nested_node to be more robust
+  !> Find a nested node by key path
+  !!
+  !! @param[in] node Node to start search from
+  !! @param[in] key_path Key path to search for, separated by '%'
+  !! @return Found node matching the key path
   recursive function find_nested_node(node, key_path) result(found_node)
     type(yaml_node), pointer :: node, found_node
     character(len=*), intent(in) :: key_path
@@ -1486,6 +1553,9 @@ end subroutine parse_mapping
   end function find_nested_node
 
   !> Check if value is a sequence
+  !!
+  !! @param[in] node Node to check
+  !! @return True if the node represents a sequence
   function check_sequence_node(node) result(is_seq)
     type(yaml_node), pointer, intent(in) :: node
     logical :: is_seq
@@ -1515,6 +1585,9 @@ end subroutine parse_mapping
   end function check_sequence_node
 
   !> Get sequence items as string array
+  !!
+  !! @param[in] node Node representing the sequence
+  !! @return Array of sequence items as strings
   function get_sequence_as_strings(node) result(items)
       type(yaml_node), pointer, intent(in) :: node
       character(len=:), allocatable, dimension(:) :: items
@@ -1557,15 +1630,22 @@ end subroutine parse_mapping
       endif
   end function get_sequence_as_strings
 
-  ! Helper function to convert integer to string
+  !> Convert integer to string
+  !!
+  !! @param[in] num Integer to convert
+  !! @return String representation of the integer
   function integer_to_string(num) result(str)
     integer, intent(in) :: num
     character(len=32) :: str
     write(str, '(I0)') num
   end function integer_to_string
 
-  ! Add new helper function to find parent node by indentation - now marked as recursive
-  ! Non-recursive version of find_parent_by_indent using a stack
+  !> Find parent node by indentation level
+  !!
+  !! @param[in] root Root node to start search from
+  !! @param[in] child_indent Indentation level of the child node
+  !! @param[in] line_num Line number of the child node
+  !! @return Parent node found at the given indentation level
   function find_parent_by_indent(root, child_indent, line_num) result(parent)
     type(yaml_node), pointer :: root, parent
     integer, intent(in) :: child_indent, line_num
@@ -1741,7 +1821,12 @@ end subroutine parse_mapping
 
   end function find_parent_by_indent
 
-  ! Add helper function to check key hierarchy
+  !> Check key hierarchy for validity
+  !!
+  !! @param[in] current Current node to check
+  !! @param[in] previous Previous node to compare with
+  !! @param[in] target_indent Target indentation level
+  !! @return True if the key hierarchy is valid
   function check_key_hierarchy(current, previous, target_indent) result(is_valid)
     type(yaml_node), pointer, intent(in) :: current, previous
     integer, intent(in) :: target_indent
@@ -1783,7 +1868,11 @@ end subroutine parse_mapping
     endif
   end function check_key_hierarchy
 
-  ! Add helper to record indent level
+  !> Record the last key at a given indentation level
+  !!
+  !! @param[in] indent Indentation level
+  !! @param[in] key Key to record
+  !! @param[in] line_num Line number of the key
   subroutine record_indent_level(indent, key, line_num)
     integer, intent(in) :: indent, line_num
     character(len=*), intent(in) :: key
@@ -1809,7 +1898,7 @@ end subroutine parse_mapping
     indent_history => new_entry
   end subroutine
 
-  ! Clean up indent history when done parsing
+  !> Clean up indent history when done parsing
   subroutine cleanup_indent_history()
     type(indent_tracker), pointer :: current, next
 

@@ -1,16 +1,29 @@
 # Fyaml - A Modern Fortran YAML Parser
 
-A lightweight YAML parser written in modern Fortran that supports nested structures, sequences, and various data types. Designed for scientific computing applications needing configuration file support.
+A feature-rich YAML parser written in modern Fortran, supporting complex data structures and designed for scientific computing applications.
 
-## Features
+## Key Features
 
-- Parse YAML files into native Fortran data structures
-- Support for strings, integers, floats, booleans, and null values
-- Handle nested mappings and sequences
-- Comment parsing
-- Debug logging with configurable levels
-- Dot notation access for nested values
-- Memory safe with pointer management
+- **Comprehensive YAML Support**
+  - Full support for YAML 1.2 specification
+  - Multi-document processing
+  - Anchors and aliases resolution
+  - Complex nested structures
+  - Sequence and mapping support
+
+- **Rich Data Type Support**
+  - Strings, integers, floats (single/double precision)
+  - Booleans with multiple formats (true/false, yes/no, on/off)
+  - Date and time parsing
+  - Null values
+  - Multi-line strings
+
+- **Advanced Features**
+  - Dot notation for nested access (e.g., "config.database.host")
+  - Array and sequence iteration
+  - Automatic type conversion
+  - Memory-safe implementation
+  - Error handling with detailed messages
 
 ## Requirements
 
@@ -28,29 +41,115 @@ make
 make install
 ```
 
-## Usage
-1) Create a YAML configuration file:
+## Usage Examples
+
+1) Create a complex YAML configuration:
 
 ```yaml
+simulation:
+  parameters:
+    timestep: 0.01
+    max_iterations: 1000
+    tolerances:
+      - 1.0e-6
+      - 1.0e-8
+  output:
+    format: netcdf
+    variables: [temperature, pressure, velocity]
+    frequency: 100
+```
+
+2) Parse and access data:
+
+```fortran
+program simulation_setup
+    use fyaml
+
+    type(fyaml_doc) :: config
+    type(yaml_value) :: val
+    real(dp) :: timestep
+    character(len=:), allocatable, dimension(:) :: variables
+
+    ! Load configuration
+    call config%load("simulation.yaml")
+
+    ! Get scalar values using dot notation
+    timestep = config%get("simulation.parameters.timestep")%get_real()
+
+    ! Get array of strings
+    variables = config%get("simulation.output.variables")%get_string_array()
+
+    ! Check if a key exists
+    if (config%has_key("simulation.output.format")) then
+        print *, "Output format:", config%get("simulation.output.format")%get_str()
+    end if
+end program
+```
+
+3) Working with sequences and mappings:
+
+```fortran
+! Iterate over sequence
+type(yaml_value) :: tolerances
+tolerances = config%get("simulation.parameters.tolerances")
+if (tolerances%is_sequence()) then
+    do i = 1, tolerances%size()
+        print *, "Tolerance", i, ":", tolerances%get(i)%get_real()
+    end do
+end if
+```
+
+4) Getting all keys from a YAML document:
+
+```yaml
+# Example configuration
 database:
   host: localhost
   port: 5432
-  credentials:
-    username: admin
-    password: secret
+logging:
+  level: debug
+  file: app.log
 ```
 
-2) Parse it in your Fortran code:
 ```fortran
-program example
+program key_example
     use fyaml
-    type(fyaml_doc) :: doc
-    type(yaml_value) :: val
 
-    call doc%load("config.yaml")
-    val = doc%root%get("database.host")
-    print *, "Host:", val%str_val
+    type(fyaml_doc) :: config
+    type(yaml_value) :: root_value, db_value
+    character(len=:), allocatable, dimension(:) :: root_keys, db_keys
+
+    ! Load configuration
+    call config%load("config.yaml")
+
+    ! Get all root level keys
+    root_value = config%root
+    root_keys = root_value%get_keys()
+    print *, "Root level keys:", root_keys  ! Will print: database, logging
+
+    ! Get keys from nested section
+    db_value = config%get("database")
+    db_keys = db_value%get_keys()
+    print *, "Database keys:", db_keys  ! Will print: host, port
+
+    ! Check if specific keys exist
+    if (root_value%has_key("database")) then
+        print *, "Database configuration found!"
+    end if
 end program
+```
+
+## Error Handling
+
+```fortran
+logical :: success
+character(len=:), allocatable :: error_msg
+
+call config%load("config.yaml", success, error_msg)
+if (.not. success) then
+    print *, "Error loading YAML:", error_msg
+    error stop
+end if
 ```
 
 ## Project Structure
