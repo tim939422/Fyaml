@@ -60,8 +60,7 @@ if(CMAKE_Fortran_COMPILER_ID MATCHES "GNU" AND CMAKE_BUILD_TYPE MATCHES "Debug")
     -ffpe-trap=invalid,zero,overflow
     -fimplicit-none
     -fbacktrace
-    -fmax-errors=0
-    -Wno-maybe-uninitialized)
+    -fmax-errors=0)
 elseif(CMAKE_Fortran_COMPILER_ID MATCHES "Intel" AND CMAKE_BUILD_TYPE MATCHES "Debug")
   list(
     APPEND
