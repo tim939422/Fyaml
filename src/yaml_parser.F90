@@ -1621,7 +1621,8 @@ end subroutine parse_mapping
 
     ! Start traversal with root node
     current => root
-
+    best_parent => root
+    
     ! Main traversal loop with defensive programming
     do while (associated(current))
         ! Safety check for corrupted pointers
