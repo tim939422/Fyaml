@@ -1,4 +1,4 @@
-# Fyaml - A Modern Fortran YAML Parser
+# fyaml - A Modern Fortran YAML Parser
 
 A feature-rich YAML parser written in modern Fortran, supporting complex data structures and designed for scientific computing applications.
 
