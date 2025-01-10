@@ -23,7 +23,7 @@ module fyaml
 
     private
     public :: fyaml_doc, yaml_value, yaml_dict, yaml_pair, error_unit
-    public :: split_key  ! New utility function
+    public :: split_key, count_children, get_child_keys  ! Add count_children and get_child_keys to public list
 
     ! Add interface declaration for nested value getters
     interface get_nested_value
@@ -38,6 +38,18 @@ module fyaml
             integer, intent(in) :: length
             integer, intent(out) :: status
         end subroutine safe_allocate_string
+    end interface
+
+    ! Add new interface declaration for count_children
+    interface count_children
+        module procedure count_node_children
+        module procedure count_value_children
+    end interface
+
+    ! Add interface for get_child_keys
+    interface get_child_keys
+        module procedure get_node_child_keys
+        module procedure get_value_child_keys
     end interface
 
     ! Remove these duplicate interface declarations since we have the implementations
@@ -65,6 +77,11 @@ module fyaml
     private :: check_sequence_impl ! New private implementation
     private :: safe_allocate_string
     private :: determine_value_type ! New private subroutine
+    private :: get_sequence_values  ! Add private declaration
+    private :: get_sequence_integers ! Add private declaration
+    private :: get_sequence_reals    ! Add private declaration
+    private :: get_sequence_bools    ! Add private declaration
+    private :: get_sequence_size  ! Add to private declarations
 
     !> Value container type supporting multiple YAML data types
     !!
@@ -79,6 +96,13 @@ module fyaml
         procedure :: get_bool => get_boolean_value  !< Get boolean value
         procedure :: is_null => check_null          !< Check if value is null
         procedure :: is_sequence => check_sequence_impl  !< Check if value is sequence
+        procedure :: child_keys => get_value_child_keys  ! Add method to type
+        procedure :: child_at => get_child_at_index  ! Add new method
+        procedure :: get_sequence => get_sequence_values       ! String sequence (default)
+        procedure :: get_sequence_int => get_sequence_integers ! Integer sequence
+        procedure :: get_sequence_real => get_sequence_reals   ! Real sequence
+        procedure :: get_sequence_bool => get_sequence_bools   ! Boolean sequence
+        procedure :: size => get_sequence_size  ! Add size method
     end type yaml_value
 
     !> Dictionary key-value pair type
@@ -896,5 +920,286 @@ contains
         node%is_string = .true.
         write(error_unit,*) "DEBUG: Value determined as string:", trim(cleaned_value)
     end subroutine determine_value_type
+
+    !> Count direct children of a yaml_node
+    !!
+    !! @param[in] node Node to count children for
+    !! @return Number of direct children
+    function count_node_children(node) result(count)
+        type(yaml_node), pointer, intent(in) :: node
+        integer :: count
+        type(yaml_node), pointer :: current
+
+        count = 0
+        if (.not. associated(node)) return
+        if (.not. associated(node%children)) return
+
+        current => node%children
+        do while (associated(current))
+            count = count + 1
+            current => current%next
+        end do
+    end function count_node_children
+
+    !> Count direct children of a yaml_value
+    !!
+    !! @param[in] val Value to count children for
+    !! @return Number of direct children
+    function count_value_children(val) result(count)
+        type(yaml_value), intent(in) :: val
+        integer :: count
+
+        if (.not. associated(val%node)) then
+            count = 0
+            return
+        endif
+
+        count = count_node_children(val%node)
+    end function count_value_children
+
+    !> Get all child keys of a yaml_node
+    !!
+    !! @param[in] node Node to get children from
+    !! @return Array of child key names
+    function get_node_child_keys(node) result(keys)
+        type(yaml_node), pointer, intent(in) :: node
+        character(len=:), allocatable, dimension(:) :: keys
+        type(yaml_node), pointer :: current
+        integer :: count, i
+
+        ! Initialize with empty array
+        allocate(character(len=0) :: keys(0))
+
+        ! Early return checks
+        if (.not. associated(node)) return
+        if (.not. associated(node%children)) return
+
+        ! Count children first
+        count = count_node_children(node)
+
+        ! Allocate array for keys
+        if (allocated(keys)) deallocate(keys)
+        allocate(character(len=32) :: keys(count))
+
+        ! Fill array with child keys
+        current => node%children
+        i = 1
+        do while (associated(current))
+            keys(i) = trim(adjustl(current%key))
+            i = i + 1
+            current => current%next
+        end do
+    end function get_node_child_keys
+
+    !> Get all child keys of a yaml_value
+    !!
+    !! @param[in] val Value to get children from
+    !! @return Array of child key names
+    function get_value_child_keys(val) result(keys)
+        class(yaml_value), intent(in) :: val
+        character(len=:), allocatable, dimension(:) :: keys
+
+        if (.not. associated(val%node)) then
+            allocate(character(len=0) :: keys(0))
+            return
+        endif
+
+        keys = get_node_child_keys(val%node)
+    end function get_value_child_keys
+
+    !> Get child value at specified index
+    !!
+    !! @param[in] self Value container instance
+    !! @param[in] idx Index of child to retrieve (1-based)
+    !! @return Value container for child at index or null if invalid
+    function get_child_at_index(self, idx) result(val)
+        class(yaml_value), intent(in) :: self
+        integer, intent(in) :: idx
+        type(yaml_value) :: val
+        type(yaml_node), pointer :: current
+        integer :: current_idx
+
+        ! Initialize result
+        val%node => null()
+
+        ! Check for valid node and children
+        if (.not. associated(self%node)) return
+        if (.not. associated(self%node%children)) return
+        if (idx < 1) return
+
+        ! Traverse to desired index
+        current => self%node%children
+        current_idx = 1
+
+        do while (associated(current))
+            if (current_idx == idx) then
+                val%node => current
+                return
+            endif
+            current => current%next
+            current_idx = current_idx + 1
+        end do
+    end function get_child_at_index
+
+    !> Get sequence values as an array of strings
+    !!
+    !! @param[in] self Value container instance
+    !! @return Array of sequence values as strings
+    function get_sequence_values(self) result(values)
+        class(yaml_value), intent(in) :: self
+        character(len=:), allocatable, dimension(:) :: values
+        type(yaml_node), pointer :: current
+        integer :: count, i
+
+        ! Initialize with empty array
+        allocate(character(len=0) :: values(0))
+
+        ! Early return checks
+        if (.not. associated(self%node)) return
+        if (.not. associated(self%node%children)) return
+        if (.not. self%is_sequence()) return
+
+        ! Count items first
+        count = count_node_children(self%node)
+        if (count == 0) return
+
+        ! Allocate array for values
+        if (allocated(values)) deallocate(values)
+        allocate(character(len=32) :: values(count))
+
+        ! Fill array with values
+        current => self%node%children
+        i = 1
+        do while (associated(current))
+            values(i) = trim(adjustl(current%value))
+            i = i + 1
+            current => current%next
+        end do
+    end function get_sequence_values
+
+    !> Get sequence values as integers
+    !!
+    !! @param[in] self Value container instance
+    !! @return Array of sequence values as integers
+    function get_sequence_integers(self) result(values)
+        class(yaml_value), intent(in) :: self
+        integer, allocatable, dimension(:) :: values
+        type(yaml_node), pointer :: current
+        integer :: count, i, ios
+
+        ! Initialize with empty array
+        allocate(values(0))
+
+        ! Early return checks
+        if (.not. associated(self%node)) return
+        if (.not. associated(self%node%children)) return
+        if (.not. self%is_sequence()) return
+
+        ! Count and allocate
+        count = count_node_children(self%node)
+        if (count == 0) return
+
+        if (allocated(values)) deallocate(values)
+        allocate(values(count))
+        values = 0  ! Initialize to default value
+
+        ! Fill array with integer values
+        current => self%node%children
+        i = 1
+        do while (associated(current))
+            read(current%value, *, iostat=ios) values(i)
+            if (ios /= 0) values(i) = 0  ! Set to 0 if conversion fails
+            i = i + 1
+            current => current%next
+        end do
+    end function get_sequence_integers
+
+    !> Get sequence values as reals
+    !!
+    !! @param[in] self Value container instance
+    !! @return Array of sequence values as reals
+    function get_sequence_reals(self) result(values)
+        class(yaml_value), intent(in) :: self
+        real, allocatable, dimension(:) :: values
+        type(yaml_node), pointer :: current
+        integer :: count, i, ios
+
+        ! Initialize with empty array
+        allocate(values(0))
+
+        ! Early return checks
+        if (.not. associated(self%node)) return
+        if (.not. associated(self%node%children)) return
+        if (.not. self%is_sequence()) return
+
+        ! Count and allocate
+        count = count_node_children(self%node)
+        if (count == 0) return
+
+        if (allocated(values)) deallocate(values)
+        allocate(values(count))
+        values = 0.0  ! Initialize to default value
+
+        ! Fill array with real values
+        current => self%node%children
+        i = 1
+        do while (associated(current))
+            read(current%value, *, iostat=ios) values(i)
+            if (ios /= 0) values(i) = 0.0  ! Set to 0.0 if conversion fails
+            i = i + 1
+            current => current%next
+        end do
+    end function get_sequence_reals
+
+    !> Get sequence values as logicals
+    !!
+    !! @param[in] self Value container instance
+    !! @return Array of sequence values as logicals
+    function get_sequence_bools(self) result(values)
+        class(yaml_value), intent(in) :: self
+        logical, allocatable, dimension(:) :: values
+        type(yaml_node), pointer :: current
+        integer :: count, i
+
+        ! Initialize with empty array
+        allocate(values(0))
+
+        ! Early return checks
+        if (.not. associated(self%node)) return
+        if (.not. associated(self%node%children)) return
+        if (.not. self%is_sequence()) return
+
+        ! Count and allocate
+        count = count_node_children(self%node)
+        if (count == 0) return
+
+        if (allocated(values)) deallocate(values)
+        allocate(values(count))
+        values = .false.  ! Initialize to default value
+
+        ! Fill array with boolean values
+        current => self%node%children
+        i = 1
+        do while (associated(current))
+            values(i) = (trim(adjustl(current%value)) == 'true')
+            i = i + 1
+            current => current%next
+        end do
+    end function get_sequence_bools
+
+    !> Get the size of a sequence
+    !!
+    !! @param[in] self Value container instance
+    !! @return Size of sequence or 0 if not a sequence/invalid
+    function get_sequence_size(self) result(size)
+        class(yaml_value), intent(in) :: self
+        integer :: size
+
+        size = 0
+        if (.not. associated(self%node)) return
+        if (.not. self%is_sequence()) return
+
+        size = count_node_children(self%node)
+    end function get_sequence_size
 
 end module fyaml
