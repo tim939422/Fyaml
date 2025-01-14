@@ -52,18 +52,39 @@ module test_fyaml
             print *, "Nested Access Test Passed!!!!!!!"
         endif
 
-        ! print *, " "
-        ! print *, '========================================'
-        ! print *, "Running Multiple Doc Test..."
-        ! print *, " "
-        ! status = test_multiple_docs()
-        ! if (status /= ERR_SUCCESS) then
-        !     write(error_unit,*) "Multiple Doc Test Failed with status:", status
-        ! else
-        !     print *, "Multiple Doc Test Passed!!!!!!!"
-        ! endif
+        print *, " "
+        print *, '========================================'
+        print *, "Running Get Value Test..."
+        print *, " "
+        status = test_get_value()
+        if (status /= ERR_SUCCESS) then
+            write(error_unit,*) "Get Value Test Failed with status:", status
+        else
+            print *, "Get Value Test Passed!!!!!!!"
+        endif
 
-        ! Add additional tests here following the same pattern
+        print *, " "
+        print *, '========================================'
+        print *, "Running Get Values Test..."
+        print *, " "
+        status = test_get_values()
+        if (status /= ERR_SUCCESS) then
+            write(error_unit,*) "Get Values Test Failed with status:", status
+        else
+            print *, "Get Values Test Passed!!!!!!!"
+        endif
+
+        print *, " "
+        print *, '========================================'
+        print *, "Running Multi Document Test..."
+        print *, " "
+        status = test_multiple_docs()
+        if (status /= ERR_SUCCESS) then
+            write(error_unit,*) "Multi Document Test Failed with status:", status
+        else
+            print *, "Multi Document Test Passed!!!!!!!"
+        endif
+
         print *, " "
         print *, '========================================'
         print *, "All tests completed."
