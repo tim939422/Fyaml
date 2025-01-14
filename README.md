@@ -152,34 +152,6 @@ if (.not. success) then
 end if
 ```
 
-## Project Structure
-```text
-.
-├── CMakeLists.txt
-├── src/
-│   ├── yaml_types.f90    ! Core type definitions
-│   ├── yaml_parser.f90   ! YAML parsing implementation
-│   └── fyaml.f90         ! High-level interface
-├── tests/
-│   └── test_example.yaml
-│   └── test_fyaml.F90
-│   └── test_utils.F90
-│   └── test_example_multi_doc.yaml
-├── docs.md
-├── README.md
-├── build.sh
-├── pages/
-    └── index.md
-    └── CONTRIBUTING.md
-    └── example/
-        ├── example.yaml
-        └── yaml_example.f90
-        └── get_all_keys_example.f90
-└── example/
-    ├── example.yaml
-    └── yaml_example.f90
-```
-
 ## Testing
 ```bash
 ctest --test-dir build/tests --output-on-failure
