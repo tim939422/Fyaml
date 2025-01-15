@@ -12,7 +12,6 @@
 !!
 !! @note Supports strings, integers, reals, booleans, nulls, and sequences
 !! @version 1.0.0
-!! @author Barry Baker
 !! @see yaml_parser
 !! @see yaml_types
 module fyaml
@@ -51,20 +50,6 @@ module fyaml
         module procedure get_node_child_keys
         module procedure get_value_child_keys
     end interface
-
-    ! Remove these duplicate interface declarations since we have the implementations
-    ! interface
-    !     subroutine determine_value_type(node)
-    !         import :: yaml_node
-    !         type(yaml_node), pointer, intent(inout) :: node
-    !     end subroutine determine_value_type
-    !
-    !     function split_key(path) result(parts)
-    !         import
-    !         character(len=*), intent(in) :: path
-    !         character(len=:), allocatable, dimension(:) :: parts
-    !     end function split_key
-    ! end interface
 
     ! Add private declarations here
     private :: get_doc_nested
@@ -289,7 +274,7 @@ contains
     !! @param[in] self Value container instance
     !! @return Real value or 0.0 if invalid
     function get_real_value(self) result(real_val)
-        class(yaml_value), intent(in) :: self
+        class(yaml_value), intent(inout) :: self
         real :: real_val
 
         real_val = 0.0
@@ -303,7 +288,7 @@ contains
     !! @param[in] self Value container instance
     !! @return Boolean value or false if invalid
     function get_boolean_value(self) result(bool_val)
-        class(yaml_value), intent(in) :: self
+        class(yaml_value), intent(inout) :: self
         logical :: bool_val
 
         bool_val = .false.
