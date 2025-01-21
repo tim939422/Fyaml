@@ -1070,6 +1070,24 @@ contains
             return
         endif
 
+        ! Test integer value under rootnode2
+        val = doc%get("rootnode2%test")  ! Changed from rootlevel2 to rootnode2
+        int_val = val%get_int()
+        call assert_equal(1, int_val, "Integer value test under rootnode2", status)  ! Updated test description
+        if (status /= ERR_SUCCESS) then
+            test_get_value = status
+            return
+        endif
+
+        ! Rest of the function remains unchanged
+        val = doc%get("rootnode2%test2%test3")
+        int_val = val%get_int()
+        call assert_equal(3, int_val, "Integer value test2%test3 under rootnode2 Integer value test", status)
+        if (status /= ERR_SUCCESS) then
+            test_get_value = status
+            return
+        endif
+
     end function test_get_value
 
     integer function test_get_values()

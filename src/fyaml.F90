@@ -140,9 +140,10 @@ contains
         character(len=*), intent(in) :: filename
         logical, intent(out), optional :: success
         type(yaml_document), allocatable :: parsed_docs(:)
-        logical :: ok
+        logical :: ok, file_exists
         integer :: rc, ios, i
         integer :: unit_num
+        character(len=1024) :: buffer
 
         ok = .false.
 
@@ -150,39 +151,78 @@ contains
         if (allocated(this%docs)) deallocate(this%docs)
         this%n_docs = 0
 
-        ! Open the file with a new unit number
-        open(newunit=unit_num, file=filename, status='old', action='read', iostat=ios)
-        if (ios /= 0) then
-            write(error_unit,*) 'Error opening YAML file:', trim(filename)
+        ! Check if file exists first
+        inquire(file=filename, exist=file_exists)
+        if (.not. file_exists) then
+            write(error_unit,*) 'YAML file not found:', trim(filename)
             if (present(success)) success = .false.
             return
         endif
 
-        ! Parse YAML
-        call parse_yaml(filename, parsed_docs, rc)
-        if (rc /= 0 .or. .not. allocated(parsed_docs)) then
-            write(error_unit,*) 'Error parsing YAML file:', trim(filename)
+        ! Open file with error checking
+        open(newunit=unit_num, file=filename, status='old', action='read', iostat=ios, iomsg=buffer)
+        if (ios /= 0) then
+            write(error_unit,*) 'Error opening file:', trim(filename), ' - ', trim(buffer)
+            if (present(success)) success = .false.
+            return
+        endif
+
+        ! Test read first line to verify file is readable
+        read(unit_num, '(A)', iostat=ios, end=100) buffer
+        if (ios /= 0) then
+            write(error_unit,*) 'Error reading file:', trim(filename)
             if (present(success)) success = .false.
             close(unit_num)
+            return
+        endif
+        rewind(unit_num)
+
+        ! Parse YAML with error handling
+        call parse_yaml(filename, parsed_docs, rc)
+        close(unit_num)
+
+        if (rc /= 0) then
+            write(error_unit,*) 'Error parsing YAML:', trim(filename)
+            if (present(success)) success = .false.
+            return
+        endif
+
+        if (.not. allocated(parsed_docs)) then
+            write(error_unit,*) 'No documents parsed from file:', trim(filename)
+            if (present(success)) success = .false.
             return
         endif
 
         ! Store number of documents and allocate docs array
         this%n_docs = size(parsed_docs)
-        allocate(this%docs(this%n_docs))
+        allocate(this%docs(this%n_docs), stat=ios)
+        if (ios /= 0) then
+            write(error_unit,*) 'Error allocating document array'
+            if (present(success)) success = .false.
+            if (allocated(parsed_docs)) deallocate(parsed_docs)
+            return
+        endif
 
-        ! Convert each document
+        ! Convert each document with error checking
         do i = 1, this%n_docs
             if (associated(parsed_docs(i)%root)) then
                 call convert_node_to_dict(parsed_docs(i)%root, this%docs(i))
                 ok = .true.
+            else
+                write(error_unit,*) 'Warning: Document', i, 'has no root node'
             endif
         end do
 
-        deallocate(parsed_docs)
-        close(unit_num)
-
+        if (allocated(parsed_docs)) deallocate(parsed_docs)
         if (present(success)) success = ok
+        return
+
+100     continue
+        ! Handle empty file
+        write(error_unit,*) 'Empty or invalid YAML file:', trim(filename)
+        if (present(success)) success = .false.
+        close(unit_num)
+        return
     end subroutine load_yaml_doc
 
     !> Convert a yaml_node to yaml_value
@@ -363,58 +403,134 @@ contains
     recursive subroutine convert_node_to_dict(node, dict)
         type(yaml_node), pointer, intent(in) :: node
         type(yaml_dict), intent(inout) :: dict
-        type(yaml_pair), pointer :: new_pair, last_pair
-        type(yaml_node), pointer :: current, child
+        type(yaml_pair), pointer :: new_pair, last_pair, root_pair, current_node
+        type(yaml_node), pointer :: current
         character(len=256) :: debug_msg
+        logical :: is_root_level
+        integer :: alloc_stat
+
+        if (.not. associated(node)) then
+            write(error_unit,*) "WARNING: Empty node passed to convert_node_to_dict"
+            return
+        endif
 
         current => node
         nullify(last_pair)
+        nullify(root_pair)
 
         do while (associated(current))
-            write(debug_msg, '(A,A,A,A)') "Converting node: ", trim(current%key), &
-                                         " Value: ", trim(current%value)
+            ! Check if this is a root-level node (no parent)
+            is_root_level = (.not. associated(current%parent))
+
+            write(debug_msg, '(A,A,A,A,A,I0,A,L1)') "Converting node: ", &
+                                             trim(current%key), &
+                                             " Value: ", trim(current%value), &
+                                             " at line ", current%line_num, &
+                                             " root: ", is_root_level
             call debug_print(DEBUG_INFO, debug_msg)
 
             ! Create new pair
-            allocate(new_pair)
+            allocate(new_pair, stat=alloc_stat)
+            if (alloc_stat /= 0) then
+                write(error_unit,*) "ERROR: Failed to allocate new pair"
+                return
+            endif
+
+            ! Initialize new pair
             new_pair%key = trim(adjustl(current%key))
             nullify(new_pair%next)
-
-            ! Set direct reference to node
             new_pair%value%node => current
 
-            ! Handle nested structures more carefully
+            ! Handle nested structures
             if (associated(current%children)) then
-                write(debug_msg, '(A,A)') "Creating nested dictionary for: ", trim(current%key)
+                write(debug_msg, '(A,A,A,L1)') "Creating nested dictionary for: ", &
+                                             trim(current%key), &
+                                             " (root level: ", is_root_level
                 call debug_print(DEBUG_INFO, debug_msg)
 
                 ! Create nested dictionary
-                allocate(new_pair%nested)
+                allocate(new_pair%nested, stat=alloc_stat)
+                if (alloc_stat /= 0) then
+                    write(error_unit,*) "ERROR: Failed to allocate nested dictionary"
+                    deallocate(new_pair)
+                    return
+                endif
 
-                ! Convert children while maintaining node structure
+                ! Initialize nested dictionary
+                new_pair%nested%first => null()
+                new_pair%nested%count = 0
+
+                ! Convert children
                 call convert_node_to_dict(current%children, new_pair%nested)
-
-                ! Ensure nested node reference is preserved
-                new_pair%value%node%children => current%children
             endif
 
-            ! Link into dictionary
-            if (.not. associated(dict%first)) then
-                dict%first => new_pair
-            else if (.not. associated(last_pair)) then
-                last_pair => dict%first
-                do while (associated(last_pair%next))
-                    last_pair => last_pair%next
-                end do
-                last_pair%next => new_pair
+            ! Link into dictionary based on root level status
+            if (is_root_level) then
+                ! For root-level nodes, start new chain
+                if (.not. associated(dict%first)) then
+                    dict%first => new_pair
+                    root_pair => new_pair
+                else
+                    ! Link at root level
+                    if (associated(root_pair)) then
+                        root_pair%next => new_pair
+                        root_pair => new_pair
+                    else
+                        ! Find end of root chain
+                        root_pair => dict%first
+                        do while (associated(root_pair%next))
+                            root_pair => root_pair%next
+                        end do
+                        root_pair%next => new_pair
+                        root_pair => new_pair
+                    endif
+                endif
+                write(debug_msg, '(A,A)') "Added root level node: ", trim(new_pair%key)
+                call debug_print(DEBUG_INFO, debug_msg)
             else
-                last_pair%next => new_pair
+                ! For non-root nodes, maintain existing hierarchy
+                if (.not. associated(last_pair)) then
+                    ! Find correct parent based on hierarchy
+                    if (associated(current%parent)) then
+                        ! Follow parent's hierarchy
+                        last_pair => dict%first
+                        do while (associated(last_pair))
+                            if (associated(last_pair%value%node, current%parent)) then
+                                if (.not. associated(last_pair%nested)) then
+                                    allocate(last_pair%nested)
+                                    last_pair%nested%first => new_pair
+                                else
+                                    ! Find end of nested chain
+                                    current_node => last_pair%nested%first
+                                    if (associated(current_node)) then
+                                        do while (associated(current_node%next))
+                                            current_node => current_node%next
+                                        end do
+                                        current_node%next => new_pair
+                                    else
+                                        last_pair%nested%first => new_pair
+                                    endif
+                                endif
+                                exit
+                            endif
+                            last_pair => last_pair%next
+                        end do
+                    endif
+                else
+                    last_pair%next => new_pair
+                endif
             endif
-            last_pair => new_pair
+
+            ! Update tracking for next iteration
+            if (.not. is_root_level) then
+                last_pair => new_pair
+            endif
             dict%count = dict%count + 1
 
+            ! Move to next node
             current => current%next
         end do
+
     end subroutine convert_node_to_dict
 
     !> Set value for a given key in dictionary
