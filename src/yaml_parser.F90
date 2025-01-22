@@ -1720,13 +1720,14 @@ end subroutine parse_mapping
         current => current%next
     end do
 
-    write(debug_msg, '(A,A,A,I0)') &
-        "Latest root-level node before line ", trim(latest_root%key), &
-        " at line ", latest_root%line_num
-    call debug_print(DEBUG_INFO, debug_msg)
-
-    ! Now search for parent starting from latest root node
+    ! Check if we found a root-level node before logging its info
     if (associated(latest_root)) then
+        write(debug_msg, '(A,A,A,I0)') &
+            "Latest root-level node before line ", trim(latest_root%key), &
+            " at line ", latest_root%line_num
+        call debug_print(DEBUG_INFO, debug_msg)
+
+        ! Now search for parent starting from latest root node
         current => latest_root
 
         ! Initialize stack for tree traversal
@@ -1811,6 +1812,11 @@ end subroutine parse_mapping
 
         ! Clean up
         if (allocated(node_stack)) deallocate(node_stack)
+    else
+        ! No root-level node found before this line
+        write(debug_msg, '(A,I0)') &
+            "No root-level node found before line ", line_num
+        call debug_print(DEBUG_INFO, debug_msg)
     endif
 
   end function find_parent_by_indent
