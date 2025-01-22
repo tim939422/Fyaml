@@ -1773,27 +1773,40 @@ end subroutine parse_mapping
                 endif
             endif
 
-            ! Tree traversal logic
+            ! Safer tree traversal logic
             if (associated(current%children)) then
+                ! Before pushing to stack, verify we have space and valid next pointer
                 if (stack_top < max_stack_size) then
                     stack_top = stack_top + 1
-                    node_stack(stack_top)%node => current%next
+                    node_stack(stack_top)%node => null()  ! Initialize to null first
+                    if (associated(current%next)) then
+                        node_stack(stack_top)%node => current%next
+                    endif
                     current => current%children
                     cycle
                 endif
-            else if (associated(current%next)) then
+            endif
+
+            ! Try moving to next sibling
+            if (associated(current%next)) then
                 current => current%next
-            else
-                ! Pop from stack
-                do while (stack_top > 0)
-                    if (associated(node_stack(stack_top)%node)) then
-                        current => node_stack(stack_top)%node
-                        stack_top = stack_top - 1
-                        exit
-                    endif
+                cycle
+            endif
+
+            ! Pop from stack if no more siblings
+            do while (stack_top > 0)
+                if (associated(node_stack(stack_top)%node)) then
+                    current => node_stack(stack_top)%node
                     stack_top = stack_top - 1
-                end do
-                if (stack_top == 0) exit
+                    exit  ! Found a valid node to process
+                endif
+                stack_top = stack_top - 1
+            end do
+
+            ! Exit if stack is empty and no valid node found
+            if (stack_top == 0 .and. .not. associated(current%next)) then
+                nullify(current)  ! Explicitly nullify before exit
+                exit
             endif
         end do
 
