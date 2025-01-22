@@ -8,6 +8,18 @@ module test_utils
     use yaml_types
     use iso_fortran_env, only: error_unit
     implicit none
+    private
+
+    ! Make test functions public
+    public :: test_basic_loading
+    public :: test_basic_types
+    public :: test_sequences
+    public :: test_root_keys
+    public :: test_nested_access
+    public :: test_get_value
+    public :: test_get_values
+    public :: test_multiple_docs
+    public :: ERR_SUCCESS
 
     ! Error codes - properly define ERR_ALLOC
     integer, parameter :: ERR_SUCCESS = 0
@@ -246,9 +258,18 @@ contains
         endif
 
         ! Test null value
-        val = doc%get("company%goodness")  ! Add parent key to path
-        call assert_equal(.true., val%get_bool(), "Null value test", status)
+        val = doc%get("company%goodness")
+        if (.not. associated(val%node)) then
+            write(error_unit,*) "Failed to get company%goodness node"
+            test_basic_types = ERR_ASSERT
+            return
+        endif
+
+        ! Test if the value is actually null
+        call assert_equal(.true., val%is_null(), "Null value test", status)
         if (status /= ERR_SUCCESS) then
+            write(error_unit,*) "Value:", trim(val%node%value)
+            write(error_unit,*) "Is null:", val%node%is_null
             test_basic_types = status
             return
         endif
@@ -1154,5 +1175,75 @@ contains
             endif
         end do
     end function test_get_values
+
+    ! Update check_null function
+    function check_null(self) result(is_null)
+        class(yaml_value), intent(in) :: self
+        logical :: is_null
+
+        is_null = .false.
+        if (.not. associated(self%node)) return
+
+        ! Check for null value ('~' or empty)
+        if (trim(adjustl(self%node%value)) == '~' .or. &
+            len_trim(adjustl(self%node%value)) == 0) then
+            is_null = .true.
+            self%node%is_null = .true.  ! Set the flag
+        endif
+    end function check_null
+
+    integer function test_root_keys()
+        type(fyaml_doc) :: doc
+        type(yaml_value) :: val
+        character(len=:), allocatable, dimension(:) :: root_keys
+        logical :: success
+        integer :: i, status
+
+        test_root_keys = ERR_SUCCESS
+
+        ! Load test file
+        call doc%load("test_example.yaml", success)
+        if (.not. success) then
+            write(error_unit,*) "Failed to load YAML file"
+            test_root_keys = ERR_ALLOC
+            return
+        endif
+
+        ! Get root level node
+        root_keys = get_root_keys(doc)
+        do i = 1, size(root_keys)
+            write(*,*) 'Root Key: ', root_keys(i)
+        enddo
+        ! if (.not. associated(val%node)) then
+        !     write(error_unit,*) "Failed to get root node"
+        !     test_root_keys = ERR_ASSERT
+        !     return
+        ! endif
+
+        ! Get all root keys
+        ! root_keys = val%child_keys()
+
+        ! We expect 2 root keys: "company" and "rootnode2"
+        call assert_equal(2, size(root_keys), "Number of root keys", status)
+        if (status /= ERR_SUCCESS) then
+            test_root_keys = status
+            return
+        endif
+
+        ! Check key names
+        call assert_equal("company", root_keys(1), "First root key", status)
+        if (status /= ERR_SUCCESS) then
+            test_root_keys = status
+            return
+        endif
+
+        call assert_equal("rootnode2", root_keys(2), "Second root key", status)
+        if (status /= ERR_SUCCESS) then
+            test_root_keys = status
+            return
+        endif
+
+        if (allocated(root_keys)) deallocate(root_keys)
+    end function test_root_keys
 
 end module test_utils
