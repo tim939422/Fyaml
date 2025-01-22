@@ -22,7 +22,7 @@ module fyaml
 
     private
     public :: fyaml_doc, yaml_value, yaml_dict, yaml_pair, error_unit
-    public :: split_key, count_children, get_child_keys  ! Add count_children and get_child_keys to public list
+    public :: split_key, count_children, get_child_keys, get_root_keys  ! Add count_children, get_child_keys, and get_root_keys to public list
 
     ! Add interface declaration for nested value getters
     interface get_nested_value
@@ -98,6 +98,7 @@ module fyaml
         type(yaml_value) :: value               !< Value container
         type(yaml_dict), pointer :: nested => null() !< Nested dictionary
         type(yaml_pair), pointer :: next => null()   !< Next pair in linked list
+        integer :: indent_level = 0              !< Indentation level (0 for root)
     end type yaml_pair
 
     !> Dictionary container type
@@ -127,6 +128,7 @@ module fyaml
         procedure :: get_bool => get_nested_bool !< Get boolean value using % path
         procedure :: get_doc => get_document     !< Get specific document
         procedure :: get_default_doc => get_default_doc !< Get value from default document (first document)
+        procedure :: root_keys => get_root_keys !< Get all root level keys
     end type fyaml_doc
 
 contains
@@ -421,12 +423,17 @@ contains
         do while (associated(current))
             ! Check if this is a root-level node (no parent)
             is_root_level = (.not. associated(current%parent))
+            if (is_root_level) then
+                current%is_root = .true.  ! Changed from is_root_key to is_root
+            endif
 
-            write(debug_msg, '(A,A,A,A,A,I0,A,L1)') "Converting node: ", &
-                                             trim(current%key), &
-                                             " Value: ", trim(current%value), &
+            ! Fix the format specifier to match the arguments
+            write(debug_msg, '(A,A,A,I0,A,L1,A,I0)') "Converting node: ", &
+                                             trim(current%value), &
                                              " at line ", current%line_num, &
-                                             " root: ", is_root_level
+                                             " root: ", is_root_level, &
+                                             " indent: ", current%indent
+
             call debug_print(DEBUG_INFO, debug_msg)
 
             ! Create new pair
@@ -440,12 +447,15 @@ contains
             new_pair%key = trim(adjustl(current%key))
             nullify(new_pair%next)
             new_pair%value%node => current
+            new_pair%indent_level = current%indent  ! Changed from indent_level to indent
 
             ! Handle nested structures
             if (associated(current%children)) then
-                write(debug_msg, '(A,A,A,L1)') "Creating nested dictionary for: ", &
+                write(debug_msg, '(A,A,A,L1,A,I0)') "Creating nested dictionary for: ", &
                                              trim(current%key), &
-                                             " (root level: ", is_root_level
+                                             " (root level: ", is_root_level, &
+                                             " indent: ", current%indent  ! Changed from indent_level to indent
+
                 call debug_print(DEBUG_INFO, debug_msg)
 
                 ! Create nested dictionary
@@ -1301,6 +1311,47 @@ contains
         if (.not. self%is_sequence()) return
 
         size = count_node_children(self%node)
+
     end function get_sequence_size
+
+    !> Get all root keys from the document
+    !!
+    !! @param[in] this Document instance
+    !! @return Array of root key names
+    function get_root_keys(this) result(keys)
+        class(fyaml_doc), intent(in) :: this
+        character(len=:), allocatable, dimension(:) :: keys
+        type(yaml_pair), pointer :: current
+        integer :: count, i
+
+        ! Count root level pairs
+        count = 0
+        current => this%docs(1)%first
+        do while (associated(current))
+            if (associated(current%value%node) .and. current%value%node%is_root) then ! Changed from is_root_key
+                count = count + 1
+            endif
+            current => current%next
+        end do
+
+        ! Allocate array for keys
+        if (count > 0) then
+            allocate(character(len=32) :: keys(count))
+            keys = ""
+
+            ! Fill array with root keys
+            current => this%docs(1)%first
+            i = 1
+            do while (associated(current))
+                if (associated(current%value%node) .and. current%value%node%is_root) then ! Changed from is_root_key
+                    keys(i) = current%key
+                    i = i + 1
+                endif
+                current => current%next
+            end do
+        else
+            allocate(character(len=0) :: keys(0))
+        endif
+    end function get_root_keys
 
 end module fyaml

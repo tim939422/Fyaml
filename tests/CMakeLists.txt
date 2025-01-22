@@ -1,22 +1,62 @@
 set(_srcs
-    test_utils.F90
-    test_fyaml.F90)
+    test_utils.F90)
 
 add_compile_options(${_fyaml_compiler_options})
 
+# Set up module and include directories
+set(TEST_MODULE_DIR ${CMAKE_CURRENT_BINARY_DIR}/modules)
+file(MAKE_DIRECTORY ${TEST_MODULE_DIR})
+
 enable_testing()
 
-add_executable(test_fyaml ${_srcs})
-target_link_libraries(test_fyaml PRIVATE fyaml)
-set_target_properties(test_fyaml PROPERTIES Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/include)
+# Build test_utils library first
+add_library(test_utils OBJECT ${_srcs})
+target_link_libraries(test_utils PUBLIC fyaml)  # Changed to PUBLIC
+target_include_directories(test_utils PUBLIC
+    $<BUILD_INTERFACE:${TEST_MODULE_DIR}>
+    $<TARGET_PROPERTY:fyaml,Fortran_MODULE_DIRECTORY>)  # Get fyaml module dir
+set_target_properties(test_utils PROPERTIES
+    Fortran_MODULE_DIRECTORY ${TEST_MODULE_DIR})
 
-# Copy test files to build directory
+# Individual test executables
+add_executable(test_basic_loading test_basic_loading_main.F90)
+add_executable(test_basic_types test_basic_types_main.F90)
+add_executable(test_sequences test_sequences_main.F90)
+add_executable(test_nested_access test_nested_access_main.F90)
+add_executable(test_get_value test_get_value_main.F90)
+add_executable(test_get_values test_get_values_main.F90)
+add_executable(test_multiple_docs test_multiple_docs_main.F90)
+add_executable(test_root_keys test_root_keys_main.F90)
+
+foreach(test IN ITEMS
+    test_basic_loading test_basic_types test_sequences
+    test_nested_access test_get_value test_get_values
+    test_multiple_docs test_root_keys)
+    # Link with test_utils and fyaml
+    target_link_libraries(${test} PRIVATE test_utils)  # fyaml comes transitively
+    # Set include paths for modules
+    target_include_directories(${test} PRIVATE
+        ${CMAKE_BINARY_DIR}/modules
+        ${TEST_MODULE_DIR})
+    set_target_properties(${test} PROPERTIES
+        Fortran_MODULE_DIRECTORY ${TEST_MODULE_DIR})
+    # Add dependencies
+    add_dependencies(${test} test_utils)
+endforeach()
+
+# Copy test files
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/test_example.yaml
                ${CMAKE_CURRENT_BINARY_DIR}/test_example.yaml COPYONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/test_example_multi_doc.yaml
                ${CMAKE_CURRENT_BINARY_DIR}/test_example_multi_doc.yaml COPYONLY)
 
-add_test(
-  NAME test_fyaml
-  COMMAND test_fyaml
-  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})  # Change working directory to binary dir where files are copied
+# Add tests
+foreach(test IN ITEMS
+    basic_loading basic_types sequences
+    nested_access get_value get_values
+    multiple_docs root_keys)
+    add_test(
+        NAME test_${test}
+        COMMAND test_${test}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+endforeach()

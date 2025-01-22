@@ -25,6 +25,7 @@ module yaml_types
         logical :: is_integer = .false.   !< Integer flag
         logical :: is_float = .false.     !< Float flag
         logical :: is_string = .true.     !< String flag (default)
+        logical :: is_root = .false.      !< Root node flag (replaces is_root_key)
     end type yaml_node
 
     !> Document container type
