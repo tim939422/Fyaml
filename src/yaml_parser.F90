@@ -67,7 +67,7 @@ module yaml_parser
   end type stack_entry
 
   ! Add constants for debug output formatting
-  character(len=*), parameter :: DBG_NEW_NODE    = ">>> NEW NODE: "
+  character(len=*), parameter :: DBG_NEW_NODE    = "--- NEW NODE: "
   character(len=*), parameter :: DBG_PARENT      = "=== PARENT: "
   character(len=*), parameter :: DBG_CHILD       = "  |- CHILD: "
   character(len=*), parameter :: DBG_SIBLING     = "  |+ SIBLING: "
@@ -1690,11 +1690,16 @@ end subroutine parse_mapping
     nullify(best_parent)
     nullify(last_valid_parent)
     nullify(latest_root)
+    nullify(current)
+
+    ! Early return if root is not associated
+    if (.not. associated(root)) then
+        call debug_print(DEBUG_INFO, "Root node is not associated")
+        return
+    endif
 
     ! Check if this is a root-level node (indent 0)
     is_root_level = (child_indent == 0)
-
-    ! For root-level nodes, MUST return null to indicate no parent
     if (is_root_level) then
         write(debug_msg, '(A,I0)') "Root level node detected at line ", line_num
         call debug_print(DEBUG_INFO, debug_msg)
@@ -1716,127 +1721,125 @@ end subroutine parse_mapping
     do while (associated(current))
         if (current%line_num < line_num .and. current%indent == 0) then
             latest_root => current
+            write(debug_msg, '(A,A,A,I0)') &
+                "Found potential root-level node: ", trim(current%key), &
+                " at line ", current%line_num
+            call debug_print(DEBUG_INFO, debug_msg)
         endif
+        if (.not. associated(current%next)) exit
         current => current%next
     end do
 
-    ! Check if we found a root-level node before logging its info
-    if (associated(latest_root)) then
-        write(debug_msg, '(A,A,A,I0)') &
-            "Latest root-level node before line ", trim(latest_root%key), &
-            " at line ", latest_root%line_num
-        call debug_print(DEBUG_INFO, debug_msg)
-
-        ! Now search for parent starting from latest root node
-        current => latest_root
-
-        ! Initialize stack for tree traversal
-        max_stack_size = 1000
-        allocate(node_stack(max_stack_size), stat=stack_top)
-        if (stack_top /= 0) then
-            call debug_print(DEBUG_ERROR, "Failed to allocate node stack")
-            return
-        endif
-        stack_top = 0
-
-        do while (associated(current))
-            if (len_trim(current%key) > 0) then
-                ! Only consider nodes before the current line and after the latest root
-                if (current%line_num < line_num .and. current%line_num >= latest_root%line_num) then
-                    ! Check if this could be a valid parent
-                    if (current%indent == parent_level_indent) then
-                        ! Found exact indent match
-                        if (.not. associated(best_parent)) then
-                            best_parent => current
-                            write(debug_msg, '(A,A,A,I0,A,I0)') &
-                                "Found first parent match: ", trim(current%key), &
-                                " at line ", current%line_num, &
-                                " indent ", current%indent
-                            call debug_print(DEBUG_INFO, debug_msg)
-                        else if (current%line_num > best_parent%line_num) then
-                            best_parent => current
-                            write(debug_msg, '(A,A,A,I0,A,I0)') &
-                                "Found better parent match: ", trim(current%key), &
-                                " at line ", current%line_num, &
-                                " indent ", current%indent
-                            call debug_print(DEBUG_INFO, debug_msg)
-                        endif
-                    else if (current%indent < child_indent) then
-                        ! Keep track of closest valid parent
-                        if (.not. associated(last_valid_parent) .or. &
-                            (current%indent > last_valid_parent%indent) .or. &
-                            (current%indent == last_valid_parent%indent .and. &
-                             current%line_num > last_valid_parent%line_num)) then
-                            last_valid_parent => current
-                        endif
-                    endif
-                endif
-            endif
-
-            ! Safer tree traversal logic
-            if (associated(current%children)) then
-                ! Before pushing to stack, verify we have space and valid next pointer
-                if (stack_top < max_stack_size) then
-                    stack_top = stack_top + 1
-                    node_stack(stack_top)%node => null()  ! Initialize to null first
-                    if (associated(current%next)) then
-                        node_stack(stack_top)%node => current%next
-                    endif
-                    current => current%children
-                    cycle
-                endif
-            endif
-
-            ! Try moving to next sibling
-            if (associated(current%next)) then
-                current => current%next
-                cycle
-            endif
-
-            ! Pop from stack if no more siblings
-            do while (stack_top > 0)
-                if (associated(node_stack(stack_top)%node)) then
-                    current => node_stack(stack_top)%node
-                    stack_top = stack_top - 1
-                    exit  ! Found a valid node to process
-                endif
-                stack_top = stack_top - 1
-            end do
-
-            ! Exit if stack is empty and no valid node found
-            if (stack_top == 0 .and. .not. associated(current%next)) then
-                nullify(current)  ! Explicitly nullify before exit
-                exit
-            endif
-        end do
-
-        ! Select final parent
-        if (associated(best_parent)) then
-            parent => best_parent
-        else if (associated(last_valid_parent)) then
-            parent => last_valid_parent
-        endif
-
-        if (associated(parent)) then
-            write(debug_msg, '(A,A,A,I0,A,I0)') &
-                "Selected parent: ", trim(parent%key), &
-                " at line ", parent%line_num, &
-                " indent ", parent%indent
-            call debug_print(DEBUG_INFO, debug_msg)
-        else
-            write(debug_msg, '(A,I0)') &
-                "No suitable parent found for line ", line_num
-            call debug_print(DEBUG_INFO, debug_msg)
-        endif
-
-        ! Clean up
-        if (allocated(node_stack)) deallocate(node_stack)
-    else
-        ! No root-level node found before this line
+    ! If no root-level node found, search from the actual root
+    if (.not. associated(latest_root)) then
         write(debug_msg, '(A,I0)') &
             "No root-level node found before line ", line_num
         call debug_print(DEBUG_INFO, debug_msg)
+        latest_root => root  ! Fall back to using the actual root
     endif
+
+    ! Now search for parent starting from latest root node
+    current => latest_root
+    best_parent => null()  ! Explicitly nullify best_parent
+    last_valid_parent => null()  ! Explicitly nullify last_valid_parent
+
+    ! Initialize stack for tree traversal with larger size for deep nesting
+    max_stack_size = 1000
+    allocate(node_stack(max_stack_size), stat=stack_top)
+    if (stack_top /= 0) then
+        call debug_print(DEBUG_ERROR, "Failed to allocate node stack")
+        return
+    endif
+    stack_top = 0
+
+    ! Depth-first search with explicit node stack
+    do while (associated(current))
+        ! Check current node as potential parent
+        if (associated(current) .and. len_trim(current%key) > 0) then
+            ! Only consider nodes before the current line
+            if (current%line_num < line_num) then
+                write(debug_msg, '(A,A,A,I0,A,I0)') &
+                    "Checking node: ", trim(current%key), &
+                    " at line ", current%line_num, &
+                    " indent ", current%indent
+                call debug_print(DEBUG_INFO, debug_msg)
+
+                ! Check for exact indent match first
+                if (current%indent == parent_level_indent) then
+                    if (.not. associated(best_parent) .or. &
+                        current%line_num > best_parent%line_num) then
+                        best_parent => current
+                        write(debug_msg, '(A,A,A,I0,A,I0)') &
+                            "Found exact indent match: ", trim(current%key), &
+                            " at line ", current%line_num, &
+                            " indent ", current%indent
+                        call debug_print(DEBUG_INFO, debug_msg)
+                    endif
+                ! Then check for closest valid parent with less indentation
+                else if (current%indent < child_indent .and. &
+                        current%indent >= 0) then
+                    if (.not. associated(last_valid_parent) .or. &
+                        current%indent > last_valid_parent%indent .or. &
+                        (current%indent == last_valid_parent%indent .and. &
+                         current%line_num > last_valid_parent%line_num)) then
+                        last_valid_parent => current
+                        write(debug_msg, '(A,A,A,I0,A,I0)') &
+                            "Found potential parent: ", trim(current%key), &
+                            " at line ", current%line_num, &
+                            " indent ", current%indent
+                        call debug_print(DEBUG_INFO, debug_msg)
+                    endif
+                endif
+            endif
+        endif
+
+        ! Tree traversal logic - try to go deeper first
+        if (associated(current%children)) then
+            ! Push current's next sibling onto stack
+            if (stack_top < max_stack_size .and. associated(current%next)) then
+                stack_top = stack_top + 1
+                node_stack(stack_top)%node => current%next
+            endif
+            ! Move to children
+            current => current%children
+        else if (associated(current%next)) then
+            ! Move to next sibling
+            current => current%next
+        else if (stack_top > 0) then
+            ! Pop from stack
+            current => node_stack(stack_top)%node
+            stack_top = stack_top - 1
+        else
+            ! No more nodes to process
+            nullify(current)
+            exit
+        endif
+    end do
+
+    ! Select best parent match
+    if (associated(best_parent)) then
+        parent => best_parent
+        write(debug_msg, '(A,A,A,I0,A,I0)') &
+            "Selected exact match parent: ", trim(parent%key), &
+            " at line ", parent%line_num, &
+            " indent ", parent%indent
+        call debug_print(DEBUG_INFO, debug_msg)
+    else if (associated(last_valid_parent)) then
+        parent => last_valid_parent
+        write(debug_msg, '(A,A,A,I0,A,I0)') &
+            "Selected closest valid parent: ", trim(parent%key), &
+            " at line ", parent%line_num, &
+            " indent ", parent%indent
+        call debug_print(DEBUG_INFO, debug_msg)
+    else
+        write(debug_msg, '(A,I0,A,I0)') &
+            "No suitable parent found for line ", line_num, &
+            " at indent ", child_indent
+        call debug_print(DEBUG_INFO, debug_msg)
+    endif
+
+    ! Clean up
+    if (allocated(node_stack)) deallocate(node_stack)
 
   end function find_parent_by_indent
 
