@@ -1766,14 +1766,24 @@ end subroutine parse_mapping
 
                 ! Check for exact indent match first
                 if (current%indent == parent_level_indent) then
-                    if (.not. associated(best_parent) .or. &
-                        current%line_num > best_parent%line_num) then
+                    if (.not. associated(best_parent)) then
                         best_parent => current
                         write(debug_msg, '(A,A,A,I0,A,I0)') &
                             "Found exact indent match: ", trim(current%key), &
                             " at line ", current%line_num, &
                             " indent ", current%indent
                         call debug_print(DEBUG_INFO, debug_msg)
+                    else
+                        if (associated(best_parent)) then
+                            if (current%line_num > best_parent%line_num) then
+                                best_parent => current
+                                write(debug_msg, '(A,A,A,I0,A,I0)') &
+                                    "Found exact indent match: ", trim(current%key), &
+                                    " at line ", current%line_num, &
+                                    " indent ", current%indent
+                                call debug_print(DEBUG_INFO, debug_msg)
+                            endif
+                        endif
                     endif
                 ! Then check for closest valid parent with less indentation
                 else if (current%indent < child_indent .and. &
