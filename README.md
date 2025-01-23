@@ -7,7 +7,6 @@ A feature-rich YAML parser written in modern Fortran, supporting complex data st
 - **Comprehensive YAML Support**
   - Full support for YAML 1.2 specification
   - Multi-document processing
-  - Anchors and aliases resolution
   - Complex nested structures
   - Sequence and mapping support
 
