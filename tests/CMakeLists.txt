@@ -3,6 +3,8 @@ set(_srcs
 
 add_compile_options(${_fyaml_compiler_options})
 
+add_compile_definitions(SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
 # Set up module and include directories
 set(TEST_MODULE_DIR ${CMAKE_CURRENT_BINARY_DIR}/modules)
 file(MAKE_DIRECTORY ${TEST_MODULE_DIR})
@@ -43,12 +45,6 @@ foreach(test IN ITEMS
     # Add dependencies
     add_dependencies(${test} test_utils)
 endforeach()
-
-# Copy test files
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/test_example.yaml
-               ${CMAKE_CURRENT_BINARY_DIR}/test_example.yaml COPYONLY)
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/test_example_multi_doc.yaml
-               ${CMAKE_CURRENT_BINARY_DIR}/test_example_multi_doc.yaml COPYONLY)
 
 # Add tests
 foreach(test IN ITEMS
