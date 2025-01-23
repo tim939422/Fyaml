@@ -1788,18 +1788,36 @@ end subroutine parse_mapping
                 ! Then check for closest valid parent with less indentation
                 else if (current%indent < child_indent .and. &
                         current%indent >= 0) then
-                    if (.not. associated(last_valid_parent) .or. &
-                        current%indent > last_valid_parent%indent .or. &
-                        (current%indent == last_valid_parent%indent .and. &
-                         current%line_num > last_valid_parent%line_num)) then
+
+                    ! First check if we have no valid parent yet
+                    if (.not. associated(last_valid_parent)) then
                         last_valid_parent => current
                         write(debug_msg, '(A,A,A,I0,A,I0)') &
-                            "Found potential parent: ", trim(current%key), &
+                            "Found first valid parent: ", trim(current%key), &
                             " at line ", current%line_num, &
                             " indent ", current%indent
                         call debug_print(DEBUG_INFO, debug_msg)
+                    else
+                        ! Now we know last_valid_parent is associated, can safely check indent
+                        if (current%indent > last_valid_parent%indent) then
+                            last_valid_parent => current
+                            write(debug_msg, '(A,A,A,I0,A,I0)') &
+                                "Found better parent (higher indent): ", trim(current%key), &
+                                " at line ", current%line_num, &
+                                " indent ", current%indent
+                            call debug_print(DEBUG_INFO, debug_msg)
+                        else if (current%indent == last_valid_parent%indent .and. &
+                                current%line_num > last_valid_parent%line_num) then
+                            last_valid_parent => current
+                            write(debug_msg, '(A,A,A,I0,A,I0)') &
+                                "Found better parent (same indent, later line): ", trim(current%key), &
+                                " at line ", current%line_num, &
+                                " indent ", current%indent
+                            call debug_print(DEBUG_INFO, debug_msg)
+                        endif
                     endif
                 endif
+
             endif
         endif
 
