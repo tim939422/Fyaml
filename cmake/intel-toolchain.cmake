@@ -1,0 +1,3 @@
+set(CMAKE_C_COMPILER icx)
+set(CMAKE_CXX_COMPILER icpx)
+set(CMAKE_Fortran_COMPILER ifx)

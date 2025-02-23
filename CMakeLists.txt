@@ -16,69 +16,6 @@ endif()
 
 cmake_print_variables(CMAKE_Fortran_COMPILER CMAKE_Fortran_COMPILER_ID CMAKE_BUILD_TYPE)
 
-# Set default compiler options for Fortran
-set(_fyaml_compiler_options "")
-
-# First ensure we're setting platform-specific flags
-if(APPLE)
-    # Get MacOS SDK path
-    execute_process(
-        COMMAND xcrun --show-sdk-path
-        OUTPUT_VARIABLE SDKROOT
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-
-    # Add MacOS specific compiler and linker flags
-    list(APPEND _fyaml_compiler_options
-        "-L${SDKROOT}/usr/lib"
-        "-L/usr/local/lib"
-        "-L/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib"
-        "-isysroot ${SDKROOT}"
-    )
-
-    # Set linker flags for macOS
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-no_compact_unwind -L${SDKROOT}/usr/lib")
-
-    # Additional system paths
-    include_directories(
-        "${SDKROOT}/usr/include"
-        "/usr/local/include"
-    )
-endif()
-
-# Add debug flags for Fortran
-if(CMAKE_Fortran_COMPILER_ID MATCHES "GNU" AND CMAKE_BUILD_TYPE MATCHES "Debug")
-  list(
-    APPEND
-    _fyaml_compiler_options
-    -Og
-    # -Bstatic
-    -Wall
-    -Wextra
-    -pedantic
-    -fcheck=all
-    -ffpe-trap=invalid,zero,overflow
-    -fimplicit-none
-    -fbacktrace
-    -fmax-errors=0)
-elseif(CMAKE_Fortran_COMPILER_ID MATCHES "Intel" AND CMAKE_BUILD_TYPE MATCHES "Debug")
-  list(
-    APPEND
-    _fyaml_compiler_options
-    -O0
-    -warn
-    all
-    -check
-    all
-    -implicitnone
-    -fpe0
-    -traceback
-    -error-limit
-    0
-    -diag-disable
-    6379,10448)
-endif()
-
 # Set the Fortran standard
 set(CMAKE_Fortran_STANDARD 2003)
 set(CMAKE_Fortran_STANDARD_REQUIRED ON)

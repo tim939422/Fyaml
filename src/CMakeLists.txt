@@ -5,4 +5,3 @@ set(_srcs
 
 add_library(fyaml ${_srcs})
 set_target_properties(fyaml PROPERTIES Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/include)
-target_link_libraries(fyaml PRIVATE ${_fyaml_compiler_options})
